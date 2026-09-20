@@ -931,7 +931,7 @@
   const OUT_OF_RANGE_COLOR = '#454F49';
 
   // ---------- map setup ----------
-  const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([-12.6, -55.7], 6);
+  const map = L.map('map', { zoomControl: true, preferCanvas: true, zoomSnap: 0.25, zoomDelta: 0.25, wheelPxPerZoomLevel: 100 }).setView([-12.6, -55.7], 6);
   featureGroup = L.featureGroup().addTo(map);
   window.addEventListener('load', () => map.invalidateSize());
   setTimeout(() => map.invalidateSize(), 300);
