@@ -182,6 +182,8 @@
 
   body.nav-nomap .map-row{ display:none; }
   body.nav-nomap .control-panel{ width:100%; max-height:none; }
+  body.subtab-upload .map-row{ display:none; }
+  body.subtab-upload .control-panel{ width:100%; max-height:none; }
 
   .charts-panel{
     width: 300px; flex-shrink:0;
@@ -222,7 +224,7 @@
   .auth-card input{
     width:100%; margin-bottom:14px;
     background:#fff !important; color:#232520 !important; border:1px solid #D6D6D6 !important;
-    border-radius:7px; padding:10px 12px; font-size:14px;
+    border-radius:7px; padding:10px 12px !important; font-size:14px !important;
   }
   .auth-card input::placeholder{ color:#9B9686; }
   .auth-card .primary-btn{ border-radius:8px; padding:12px; font-size:14px; margin-top:4px; }
@@ -235,6 +237,7 @@
 
   /* Supervisor: view-only — hide every creation/editing control */
   body.role-supervisor #farmCreateBox,
+  body.role-supervisor #section-supervisors,
   body.role-supervisor #perimeterCreateBox,
   body.role-supervisor .farm-delete,
   body.role-supervisor .perim-delete,
@@ -649,6 +652,21 @@
                 <button class="primary-btn" id="registerFarmBtn">Cadastrar fazenda</button>
               </div>
             </div>
+            <div class="section" id="section-supervisors" style="flex:1 1 100%;">
+              <div class="section-head"><h2>Supervisores</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">
+                Dê acesso de visualização a um supervisor escolhendo quais das suas fazendas ele poderá ver. Se a pessoa ainda não tem conta, um convite fica pendente e se aplica sozinho assim que ela criar a conta com esse e-mail.
+              </div>
+              <label class="field-label">E-mail do supervisor</label>
+              <input type="text" id="supervisorEmailInput" placeholder="supervisor@fazenda.com">
+              <label class="field-label" style="margin-top:10px;">Fazendas com acesso</label>
+              <div id="grantFarmsList" class="field-status">Cadastre uma fazenda primeiro.</div>
+              <button class="primary-btn" id="grantAccessBtn">Conceder acesso</button>
+              <div class="field-status" id="grantAccessStatus"></div>
+
+              <label class="field-label" style="margin-top:16px;">Acessos concedidos</label>
+              <div id="farmAccessList" class="field-status">Carregando…</div>
+            </div>
           </div>
 
           <div id="panel-geracao" style="display:none;">
@@ -695,6 +713,10 @@
               </div>
               <button class="primary-btn" id="categoryUploadBtn" style="display:none;">Enviar dados</button>
               <div class="field-status" id="categoryUploadStatus"></div>
+            </div>
+            <div class="section" style="flex:1 1 100%;">
+              <div class="section-head"><h2>Envios realizados</h2></div>
+              <div id="uploadsList" class="field-status">Carregando…</div>
             </div>
           </div>
 
@@ -1208,6 +1230,7 @@
     const isCategoryPage = !isFarmsPage && !isGeracaoPage;
     const isPastagens = currentCategory === 'pastagens';
     document.body.classList.toggle('nav-nomap', isFarmsPage || isGeracaoPage);
+    document.body.classList.toggle('subtab-upload', isCategoryPage && currentSubtab === 'upload');
     document.getElementById('subTabs').style.display = isCategoryPage ? 'flex' : 'none';
     document.getElementById('forragemTabBtn').style.display = (isCategoryPage && isPastagens) ? 'inline-block' : 'none';
     if(currentSubtab === 'forragem' && !isPastagens) currentSubtab = 'upload';
@@ -1289,6 +1312,7 @@
       if(goingToCategory){
         await populateMapaSelectForCategory();
         if(categoryChanged) await restoreCategoryMapState(currentCategory);
+        if(currentSubtab === 'upload') loadUploadsList();
       }
       setTimeout(() => map.invalidateSize(), 50);
     });
@@ -1298,6 +1322,8 @@
       currentSubtab = btn.dataset.subtab;
       controlPanelVisible = true;
       renderNavState();
+      if(currentSubtab === 'upload') loadUploadsList();
+      setTimeout(() => map.invalidateSize(), 50);
     });
   });
   renderNavState();
@@ -1389,7 +1415,90 @@
     if(farms.some(f => f.name === prevFilter)) filterSel.value = prevFilter;
 
     populateForageFarmSelect();
+    populateGrantFarmsList();
   }
+
+  function populateGrantFarmsList(){
+    const container = document.getElementById('grantFarmsList');
+    if(farms.length === 0){ container.innerHTML = 'Cadastre uma fazenda primeiro.'; return; }
+    container.innerHTML = farms.map(f => (
+      '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);padding:4px 0;cursor:pointer;">' +
+        '<input type="checkbox" class="grant-farm-checkbox" value="' + f.id + '"> ' + escapeHtml(f.name) +
+      '</label>'
+    )).join('');
+  }
+
+  document.getElementById('grantAccessBtn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('grantAccessStatus');
+    const email = document.getElementById('supervisorEmailInput').value.trim();
+    const farmIds = Array.from(document.querySelectorAll('.grant-farm-checkbox:checked')).map(cb => cb.value);
+    if(!email){ statusEl.textContent = 'Informe o e-mail do supervisor.'; return; }
+    if(farmIds.length === 0){ statusEl.textContent = 'Escolha pelo menos uma fazenda.'; return; }
+    statusEl.textContent = 'Concedendo…';
+    try{
+      const { data: existingProfile, error: profileErr } = await sb.from('profiles').select('id,email').ilike('email', email).maybeSingle();
+      if(profileErr) throw profileErr;
+      if(existingProfile){
+        const rows = farmIds.map(fid => ({ farm_id: fid, user_id: existingProfile.id, granted_email: existingProfile.email, granted_by: currentUser.id }));
+        const { error } = await sb.from('farm_access').upsert(rows, { onConflict: 'farm_id,user_id' });
+        if(error) throw error;
+        statusEl.textContent = 'Acesso concedido a ' + existingProfile.email + '.';
+      } else {
+        const { error } = await sb.from('pending_supervisor_invites').insert({ email, farm_ids: farmIds, created_by: currentUser.id });
+        if(error) throw error;
+        statusEl.textContent = 'Convite registrado para ' + email + ' — o acesso é liberado assim que essa pessoa criar a conta com esse e-mail.';
+      }
+      document.getElementById('supervisorEmailInput').value = '';
+      document.querySelectorAll('.grant-farm-checkbox').forEach(cb => cb.checked = false);
+      loadFarmAccessList();
+    }catch(err){
+      statusEl.textContent = 'Erro: ' + err.message;
+    }
+  });
+
+  async function loadFarmAccessList(){
+    const container = document.getElementById('farmAccessList');
+    container.textContent = 'Carregando…';
+    try{
+      const [{ data: grants, error: grantsErr }, { data: invites, error: invitesErr }] = await Promise.all([
+        sb.from('farm_access').select('*, farms(name)').order('created_at', { ascending: false }),
+        sb.from('pending_supervisor_invites').select('*').eq('claimed', false).order('created_at', { ascending: false })
+      ]);
+      if(grantsErr) throw grantsErr;
+      if(invitesErr) throw invitesErr;
+
+      const rows = [];
+      (grants || []).forEach(g => rows.push(
+        '<div class="saved-item" data-kind="grant" data-id="' + g.id + '">' +
+          '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(g.granted_email || 'usuário') + '</div>' +
+          '<div class="saved-item-date">' + escapeHtml(g.farms ? g.farms.name : 'fazenda') + '</div></div>' +
+          '<div class="saved-item-actions"><button type="button" class="mini-btn danger access-revoke" title="Revogar acesso">×</button></div>' +
+        '</div>'
+      ));
+      (invites || []).forEach(inv => rows.push(
+        '<div class="saved-item" data-kind="invite" data-id="' + inv.id + '">' +
+          '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(inv.email) + ' (convite pendente)</div>' +
+          '<div class="saved-item-date">' + inv.farm_ids.length + ' fazenda(s) reservada(s)</div></div>' +
+          '<div class="saved-item-actions"><button type="button" class="mini-btn danger access-revoke" title="Cancelar convite">×</button></div>' +
+        '</div>'
+      ));
+      container.innerHTML = rows.length > 0 ? rows.join('') : 'Nenhum acesso concedido ainda.';
+    }catch(err){
+      container.innerHTML = 'Erro ao carregar: ' + escapeHtml(err.message);
+    }
+  }
+  document.getElementById('farmAccessList').addEventListener('click', async (e) => {
+    if(!e.target.classList.contains('access-revoke')) return;
+    const item = e.target.closest('.saved-item');
+    const table = item.dataset.kind === 'invite' ? 'pending_supervisor_invites' : 'farm_access';
+    try{
+      const { error } = await sb.from(table).delete().eq('id', item.dataset.id);
+      if(error) throw error;
+      loadFarmAccessList();
+    }catch(err){
+      setStatus('warn', 'Não foi possível revogar: ' + err.message);
+    }
+  });
 
   async function loadFarmsFromDB(){
     try{
@@ -1770,9 +1879,10 @@
   });
 
   // ================= UPLOAD DE DADOS (cumulativo, por categoria) =================
-  let categoryUploadWorkbook = null, categoryUploadRows = [];
+  let categoryUploadWorkbook = null, categoryUploadRows = [], categoryUploadFileName = '';
   document.getElementById('categoryUploadInput').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if(!file) return;
+    categoryUploadFileName = file.name;
     try{
       const buf = await file.arrayBuffer();
       categoryUploadWorkbook = XLSX.read(buf, { type: 'array', cellDates: true });
@@ -1791,6 +1901,39 @@
     document.getElementById('categoryUploadBtn').style.display = categoryUploadRows.length > 0 ? 'inline-block' : 'none';
     document.getElementById('categoryUploadStatus').textContent = categoryUploadRows.length + ' linha(s) na planilha.';
   }
+
+  async function loadUploadsList(){
+    const container = document.getElementById('uploadsList');
+    container.textContent = 'Carregando…';
+    try{
+      const { data, error } = await sb.from('data_uploads').select('*').eq('category', currentCategory).order('created_at', { ascending: false });
+      if(error) throw error;
+      const uploads = data || [];
+      if(uploads.length === 0){ container.innerHTML = 'Nenhum envio registrado ainda nesta aba.'; return; }
+      container.innerHTML = uploads.map(u => (
+        '<div class="saved-item" data-id="' + u.id + '">' +
+          '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(u.file_name) + '</div>' +
+          '<div class="saved-item-date">' + escapeHtml(u.uploaded_by || 'usuário desconhecido') + ' · ' + formatDate(u.created_at) + ' · ' + u.row_count + ' linha(s)</div></div>' +
+          '<div class="saved-item-actions"><button type="button" class="mini-btn danger upload-delete" title="Excluir este envio e seus dados">×</button></div>' +
+        '</div>'
+      )).join('');
+    }catch(err){
+      container.innerHTML = 'Erro ao carregar envios: ' + escapeHtml(err.message);
+    }
+  }
+  document.getElementById('uploadsList').addEventListener('click', async (e) => {
+    if(!e.target.classList.contains('upload-delete')) return;
+    const id = e.target.closest('.saved-item').dataset.id;
+    try{
+      const { error } = await sb.from('data_uploads').delete().eq('id', id);
+      if(error) throw error;
+      await loadUploadsList();
+      refreshAvailableDates();
+    }catch(err){
+      setStatus('warn', 'Não foi possível excluir o envio: ' + err.message);
+    }
+  });
+
   function findColumnKey(row, candidates){
     const keys = Object.keys(row);
     for(const cand of candidates){
@@ -1813,6 +1956,21 @@
     const valueKeys = Object.keys(sampleRow).filter(k => k !== farmKey && k !== talhaoKey && k !== dateKey);
 
     statusEl.textContent = 'Enviando…';
+    let uploadRecordId = null;
+    try{
+      const { data, error } = await sb.from('data_uploads').insert({
+        category: currentCategory,
+        file_name: categoryUploadFileName || 'planilha.xlsx',
+        uploaded_by: currentUser ? currentUser.email : null,
+        row_count: 0
+      }).select().single();
+      if(error) throw error;
+      uploadRecordId = data.id;
+    }catch(err){
+      statusEl.textContent = 'Não foi possível registrar o envio: ' + err.message;
+      return;
+    }
+
     let ok = 0, fail = 0; const failReasons = [];
     for(const row of categoryUploadRows){
       const farmName = String(row[farmKey] || '').trim();
@@ -1832,18 +1990,22 @@
       try{
         const { error } = await sb.from('category_data').upsert({
           category: currentCategory, farm_id: farm.id, farm_name: farm.name,
-          talhao_name: talhaoFeature.name, sample_date: dateStr, values
+          talhao_name: talhaoFeature.name, sample_date: dateStr, values, upload_id: uploadRecordId
         }, { onConflict: 'category,farm_id,talhao_name,sample_date' });
         if(error) throw error;
         ok++;
       }catch(err){ fail++; failReasons.push(farmName + '/' + talhaoName + ': ' + err.message); }
     }
+
+    try{ await sb.from('data_uploads').update({ row_count: ok }).eq('id', uploadRecordId); }catch(err){}
+
     let msg = ok + ' linha(s) salva(s).';
     if(fail > 0){
       const preview = failReasons.slice(0,5).join('; ') + (failReasons.length > 5 ? ' e mais ' + (failReasons.length - 5) : '');
       msg += ' ' + fail + ' com problema: ' + preview + '.';
     }
     statusEl.textContent = msg;
+    loadUploadsList();
     if(ok > 0){
       await syncMapDefinitionsWithUploadedColumns(valueKeys);
       refreshAvailableDates();
@@ -2653,6 +2815,7 @@
     const farmsOk = await loadFarmsFromDB();
     const mapDefsOk = await loadMapDefinitions();
     const perimsOk = await loadPerimetersFromDB();
+    if(currentRole === 'analista') loadFarmAccessList();
     if(farmsOk && mapDefsOk && perimsOk){
       setDbStatus('ok', 'banco conectado');
       setStatus('info', '');
