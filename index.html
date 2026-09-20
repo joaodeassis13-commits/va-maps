@@ -88,11 +88,13 @@
     background: var(--panel);
     display:flex; flex-direction:column;
     min-height:0;
+    position: fixed; top:0; left:0; height:100vh; z-index:150; overflow-y:auto;
   }
 
   .main-area{
     flex:1; min-width:0; display:flex; flex-direction:column;
     background: #F7F7F7; color:#232520;
+    margin-left: 224px;
   }
   .page-header{
     display:flex; align-items:center; gap:10px;
@@ -541,7 +543,8 @@
 
   @media (max-width: 900px){
     .shell{ flex-direction:column; height:auto; }
-    .side-nav{ width:100%; flex-direction:row; overflow-x:auto; }
+    .side-nav{ width:100%; flex-direction:row; overflow-x:auto; position:static; height:auto; }
+    .main-area{ margin-left:0; }
     .nav-list{ flex-direction:row; overflow-y:visible; }
     .sidebar-footer{ display:none; }
     .map-row{ flex-direction:column; }
@@ -742,15 +745,23 @@
                 <label class="field-label">Ano</label>
                 <select id="mapaYearSelect"><option value="">Todos</option></select>
               </div>
-              <div class="field-group" style="flex:0 0 180px;">
-                <label class="field-label">Data de referência</label>
-                <select id="mapaDateInput"><option value="">Mais recente</option></select>
+              <div class="field-group" style="flex:0 0 140px;">
+                <label class="field-label">Mês</label>
+                <select id="mapaMonthSelect"><option value="">Todos</option></select>
+              </div>
+              <div class="field-group" style="flex:0 0 300px;">
+                <label class="field-label">Período</label>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <select id="mapaStartDateSelect" style="flex:1;"><option value="">Início</option></select>
+                  <span class="rr-dash">–</span>
+                  <select id="mapaEndDateSelect" style="flex:1;"><option value="">Mais recente</option></select>
+                </div>
               </div>
               <div class="field-group" style="flex:0 0 auto;">
                 <label class="field-label">&nbsp;</label>
                 <button class="primary-btn" id="renderMapaBtn" style="margin-top:0; width:auto; padding:9px 20px; white-space:nowrap;">Mostrar no mapa</button>
               </div>
-              <div class="field-status" style="flex-basis:100%; margin-top:2px;">"Mais recente" usa o dado mais novo de cada talhão. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
+              <div class="field-status" style="flex-basis:100%; margin-top:2px;">Deixe início e fim em branco para usar o dado mais recente de cada talhão. Escolher a mesma data em início e fim mostra um dia específico. Ano/Mês filtram quais datas aparecem no período. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
               <div class="field-status" id="mapaStatus" style="flex-basis:100%;"></div>
             </div>
           </div>
@@ -861,6 +872,47 @@
   const SUPABASE_URL = 'https://tilyhwylkvpkkonxjkrb.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_dE0IZYpHsixZNocBMJaPVw_4SZFaepF';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ---------- offline support: service worker + local (IndexedDB) cache ----------
+  // Viewing maps and location works offline using whatever was last loaded
+  // successfully; uploads, farm creation and map creation still need internet.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+
+  const IDB_NAME = 'mapas-tematicos-offline', IDB_VERSION = 1;
+  function openIDB(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = () => { if(!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv'); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, value){
+    try{
+      const db = await openIDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      });
+    }catch(e){ /* IndexedDB unavailable — offline cache simply won't work */ }
+  }
+  async function idbGet(key){
+    try{
+      const db = await openIDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readonly');
+        const req = tx.objectStore('kv').get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }catch(e){ return undefined; }
+  }
+  window.addEventListener('online', () => setDbStatus('ok', 'banco conectado'));
+  window.addEventListener('offline', () => setDbStatus('warn', 'offline — usando dados salvos'));
+
 
   function setDbStatus(kind, label){
     const dot = document.getElementById('dbDot');
@@ -1198,6 +1250,47 @@
     stopGeolocation();
   }
 
+  // ---------- fullscreen control (top-left, below the locate button) ----------
+  function isFullscreenActive(){
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+  function updateFullscreenIcon(){
+    const btn = document.getElementById('fullscreenBtn');
+    if(!btn) return;
+    const active = isFullscreenActive();
+    btn.classList.toggle('active', active);
+    btn.title = active ? 'Sair da tela inteira' : 'Mostrar tela inteira';
+    btn.innerHTML = active
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+    setTimeout(() => map.invalidateSize(), 150);
+  }
+  function toggleFullscreen(){
+    const el = document.getElementById('mapPanel');
+    if(!isFullscreenActive()){
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if(!req){ setStatus('warn', 'Este navegador não suporta tela inteira.'); return; }
+      req.call(el).catch(err => setStatus('warn', 'Não foi possível abrir em tela inteira: ' + err.message));
+    } else {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if(exit) exit.call(document);
+    }
+  }
+  document.addEventListener('fullscreenchange', updateFullscreenIcon);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
+
+  const fullscreenControl = L.control({ position: 'topleft' });
+  fullscreenControl.onAdd = function(){
+    const div = L.DomUtil.create('div', 'leaflet-bar locate-control');
+    div.id = 'fullscreenBtn';
+    div.title = 'Mostrar tela inteira';
+    div.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.on(div, 'click', toggleFullscreen);
+    return div;
+  };
+  fullscreenControl.addTo(map);
+
   // ---------- locate-me control (top-left): device location as a blue arrow ----------
   document.getElementById('ndviDateInput').addEventListener('change', (e) => { if(e.target.value) ndvi.setUrl(ndviUrlForDate(e.target.value)); });
   document.getElementById('sentinelDateInput').addEventListener('change', (e) => { if(e.target.value) ndviSentinel.setParams({ time: sentinelTimeRange(e.target.value) }); });
@@ -1271,7 +1364,9 @@
       varIdx: document.getElementById('mapaVariableSelect').value,
       secondaryIdxs: getSelectedSecondaryIdxs(),
       year: document.getElementById('mapaYearSelect').value,
-      date: document.getElementById('mapaDateInput').value
+      month: document.getElementById('mapaMonthSelect').value,
+      startDate: document.getElementById('mapaStartDateSelect').value,
+      endDate: document.getElementById('mapaEndDateSelect').value
     };
   }
   async function restoreCategoryMapState(category){
@@ -1288,8 +1383,11 @@
     });
     updateSecondaryVarTriggerLabel();
     document.getElementById('mapaYearSelect').value = state.year || '';
-    populateMapaDateSelect();
-    document.getElementById('mapaDateInput').value = state.date || '';
+    populateMapaMonthSelect();
+    document.getElementById('mapaMonthSelect').value = state.month || '';
+    populateMapaPeriodSelects();
+    document.getElementById('mapaStartDateSelect').value = state.startDate || '';
+    document.getElementById('mapaEndDateSelect').value = state.endDate || '';
     document.getElementById('renderMapaBtn').click();
   }
 
@@ -1510,8 +1608,20 @@
       farms.forEach(f => addFarmLayersToMap(f.name, f.kml_features));
       renderFarmsList();
       if(placemarkLayers.length > 0) map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
+      idbSet('farms', farms);
       return true;
     }catch(err){
+      const cached = await idbGet('farms');
+      if(cached){
+        farms = cached;
+        if(featureGroup) featureGroup.clearLayers();
+        placemarkLayers = [];
+        farms.forEach(f => addFarmLayersToMap(f.name, f.kml_features));
+        renderFarmsList();
+        if(placemarkLayers.length > 0) map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
+        setStatus('warn', 'Sem conexão — mostrando fazendas salvas localmente (podem estar desatualizadas).');
+        return true;
+      }
       setStatus('warn', 'Não foi possível carregar as fazendas do banco: ' + err.message);
       return false;
     }
@@ -1838,8 +1948,16 @@
       mapDefinitions = data || [];
       renderMapDefinitionsList();
       populateMapaSelectForCategory();
+      idbSet('mapDefinitions', mapDefinitions);
       return true;
     }catch(err){
+      const cached = await idbGet('mapDefinitions');
+      if(cached){
+        mapDefinitions = cached;
+        renderMapDefinitionsList();
+        populateMapaSelectForCategory();
+        return true;
+      }
       document.getElementById('mapDefinitionsList').innerHTML = 'Erro: ' + escapeHtml(err.message);
       return false;
     }
@@ -2095,26 +2213,46 @@
     }
     populateMapaYearSelect();
   }
+  const MONTH_NAMES = { '01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro' };
+
   function populateMapaYearSelect(){
     const years = Array.from(new Set(availableDatesCache.map(d => d.slice(0,4)))).sort((a,b) => b.localeCompare(a));
     const sel = document.getElementById('mapaYearSelect');
     const prev = sel.value;
     sel.innerHTML = '<option value="">Todos</option>' + years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
     if(years.includes(prev)) sel.value = prev;
-    populateMapaDateSelect();
+    populateMapaMonthSelect();
   }
-  document.getElementById('mapaYearSelect').addEventListener('change', populateMapaDateSelect);
-  function populateMapaDateSelect(){
+  document.getElementById('mapaYearSelect').addEventListener('change', populateMapaMonthSelect);
+
+  function populateMapaMonthSelect(){
     const year = document.getElementById('mapaYearSelect').value;
-    const filtered = year ? availableDatesCache.filter(d => d.startsWith(year)) : availableDatesCache;
-    const sortedDesc = filtered.slice().sort((a,b) => b.localeCompare(a));
-    const sel = document.getElementById('mapaDateInput');
+    const relevant = year ? availableDatesCache.filter(d => d.slice(0,4) === year) : availableDatesCache;
+    const months = Array.from(new Set(relevant.map(d => d.slice(5,7)))).sort();
+    const sel = document.getElementById('mapaMonthSelect');
     const prev = sel.value;
-    sel.innerHTML = '<option value="">Mais recente</option>' + sortedDesc.map(d => {
-      const [y,m,dd] = d.split('-');
+    sel.innerHTML = '<option value="">Todos</option>' + months.map(m => '<option value="' + m + '">' + MONTH_NAMES[m] + '</option>').join('');
+    if(months.includes(prev)) sel.value = prev;
+    populateMapaPeriodSelects();
+  }
+  document.getElementById('mapaMonthSelect').addEventListener('change', populateMapaPeriodSelects);
+
+  function populateMapaPeriodSelects(){
+    const year = document.getElementById('mapaYearSelect').value;
+    const month = document.getElementById('mapaMonthSelect').value;
+    const relevant = availableDatesCache.filter(d => (!year || d.slice(0,4) === year) && (!month || d.slice(5,7) === month));
+    const sorted = relevant.slice().sort();
+    const optionsHtml = sorted.map(d => {
+      const [y, m, dd] = d.split('-');
       return '<option value="' + d + '">' + dd + '/' + m + '/' + y + '</option>';
     }).join('');
-    if(sortedDesc.includes(prev)) sel.value = prev;
+    const startSel = document.getElementById('mapaStartDateSelect');
+    const endSel = document.getElementById('mapaEndDateSelect');
+    const prevStart = startSel.value, prevEnd = endSel.value;
+    startSel.innerHTML = '<option value="">Início</option>' + optionsHtml;
+    endSel.innerHTML = '<option value="">Mais recente</option>' + optionsHtml;
+    if(sorted.includes(prevStart)) startSel.value = prevStart;
+    if(sorted.includes(prevEnd)) endSel.value = prevEnd;
   }
 
   document.getElementById('mapaSelect').addEventListener('change', populateMapaVariableSelect);
@@ -2171,7 +2309,8 @@
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const varIdx = Number(document.getElementById('mapaVariableSelect').value);
     const secondaryIdxs = getSelectedSecondaryIdxs();
-    const refDate = document.getElementById('mapaDateInput').value || null;
+    const startDate = document.getElementById('mapaStartDateSelect').value || null;
+    const endDate = document.getElementById('mapaEndDateSelect').value || null;
     const statusEl = document.getElementById('mapaStatus');
     if(!def || !Number.isInteger(varIdx)){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
     const varDef = def.variables[varIdx];
@@ -2180,10 +2319,22 @@
 
     statusEl.textContent = 'Carregando dados…';
     try{
-      let query = sb.from('category_data').select('*').eq('category', currentCategory);
-      if(refDate) query = query.lte('sample_date', refDate);
-      const { data, error } = await query.order('sample_date', { ascending: false });
-      if(error) throw error;
+      let data;
+      let usedOfflineCache = false;
+      try{
+        let query = sb.from('category_data').select('*').eq('category', currentCategory);
+        if(startDate) query = query.gte('sample_date', startDate);
+        if(endDate) query = query.lte('sample_date', endDate);
+        const res = await query.order('sample_date', { ascending: false });
+        if(res.error) throw res.error;
+        data = res.data;
+        idbSet('categoryData_' + currentCategory, data);
+      }catch(networkErr){
+        const cached = await idbGet('categoryData_' + currentCategory);
+        if(!cached) throw networkErr;
+        data = cached.filter(r => (!startDate || r.sample_date >= startDate) && (!endDate || r.sample_date <= endDate));
+        usedOfflineCache = true;
+      }
 
       const latestByTalhao = new Map();
       (data || []).forEach(row => {
@@ -2277,7 +2428,11 @@
       renderCategoryFilterBody();
       updateLayerVisibility();
 
-      statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + (refDate ? (' até ' + refDate) : ' (mais recente)') + '.';
+      let periodLabel = ' (mais recente)';
+      if(startDate && endDate) periodLabel = startDate === endDate ? (' em ' + endDate) : (' de ' + startDate + ' a ' + endDate);
+      else if(endDate) periodLabel = ' até ' + endDate;
+      else if(startDate) periodLabel = ' a partir de ' + startDate;
+      statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
     }
@@ -2290,8 +2445,15 @@
       if(error) throw error;
       perimeters = data || [];
       renderPerimetersList();
+      idbSet('perimeters', perimeters);
       return true;
     }catch(err){
+      const cached = await idbGet('perimeters');
+      if(cached){
+        perimeters = cached;
+        renderPerimetersList();
+        return true;
+      }
       document.getElementById('perimetersList').innerHTML = 'Erro ao carregar perímetros: ' + escapeHtml(err.message);
       return false;
     }
