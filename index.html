@@ -605,6 +605,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h6"/></svg>
           Fertilidade do solo
         </button>
+        <button type="button" class="nav-item" data-nav="projetos">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9z"/><path d="M12 11v9M12 11 4 6.5M12 11l8-4.5"/></svg>
+          Projetos
+        </button>
       </nav>
       <div class="active-farm-box">
         <label for="farmFilter">Fazenda ativa</label>
@@ -687,6 +691,7 @@
                 <option value="confinamento_sup">Confinamento e Suplementação</option>
                 <option value="operacoes_agricolas">Operações agrícolas</option>
                 <option value="fertilidade_solo">Fertilidade do solo</option>
+                <option value="projetos">Projetos</option>
               </select>
               <label class="field-label">Nome do mapa</label>
               <input type="text" id="mapDefName" placeholder="ex.: Cobertura de pastagem">
@@ -913,7 +918,8 @@
     pastagens: 'Manejo de pastagens',
     confinamento_sup: 'Confinamento e Suplementação',
     operacoes_agricolas: 'Operações agrícolas',
-    fertilidade_solo: 'Fertilidade do solo'
+    fertilidade_solo: 'Fertilidade do solo',
+    projetos: 'Projetos'
   };
   let currentCategory = 'pastagens';
   let legendVisible = true;
@@ -1353,7 +1359,7 @@
 
   function resetMapPainting(){
     placemarkLayers.forEach(l => {
-      l.setStyle({ color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45, dashArray: null });
+      l.setStyle(l.isBoundaryPolygon ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45, dashArray: null });
       l._paintGroup = null;
       l.unbindPopup();
     });
@@ -1489,14 +1495,60 @@
   }
 
   // ---------- farms ----------
+  // Detects a polygon that geometrically contains (nearly) all the others in
+  // the same farm — typical of a KML that includes both the overall farm
+  // boundary and the individual talhões. That one is flagged so it always
+  // renders as an outline only, instead of a solid fill hiding the rest.
+  function polygonAreaShoelace(ring){
+    let area = 0;
+    for(let i = 0; i < ring.length; i++){
+      const [lat1, lng1] = ring[i];
+      const [lat2, lng2] = ring[(i + 1) % ring.length];
+      area += lng1 * lat2 - lng2 * lat1;
+    }
+    return Math.abs(area / 2);
+  }
+  function polygonCentroid(ring){
+    let x = 0, y = 0;
+    ring.forEach(([lat, lng]) => { x += lat; y += lng; });
+    return [x / ring.length, y / ring.length];
+  }
+  function ringContainsPoint(ring, point){
+    const [px, py] = point;
+    let inside = false;
+    for(let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+      if(intersect) inside = !inside;
+    }
+    return inside;
+  }
+  function detectBoundaryFeature(features){
+    if(features.length < 2) return null;
+    const infos = features.map(f => {
+      const ring = f.parts[0][0];
+      return { feature: f, ring, area: polygonAreaShoelace(ring), centroid: polygonCentroid(ring) };
+    });
+    infos.sort((a, b) => b.area - a.area);
+    const candidate = infos[0];
+    const others = infos.slice(1);
+    if(others.length === 0) return null;
+    const containedCount = others.filter(o => ringContainsPoint(candidate.ring, o.centroid)).length;
+    return (containedCount / others.length >= 0.8) ? candidate.feature : null;
+  }
+  const BOUNDARY_STYLE = { color: '#5A6B63', weight: 2, fill: false };
+
   function addFarmLayersToMap(farmName, features){
+    const boundaryFeature = detectBoundaryFeature(features);
     features.forEach(f => {
-      const layer = L.polygon(f.parts, { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45 });
+      const isBoundary = f === boundaryFeature;
+      const layer = L.polygon(f.parts, isBoundary ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45 });
       layer.featureName = f.name;
       layer.farmName = farmName;
+      layer.isBoundaryPolygon = isBoundary;
       layer.bindTooltip(f.name, { sticky: true });
       layer.on('mouseover', function(){ this.setStyle({ weight: 3 }); this.bringToFront(); });
-      layer.on('mouseout', function(){ this.setStyle({ weight: 1 }); });
+      layer.on('mouseout', function(){ this.setStyle(isBoundary ? BOUNDARY_STYLE : { weight: 1 }); });
       layer.addTo(featureGroup);
       placemarkLayers.push(layer);
     });
@@ -2423,6 +2475,7 @@
 
       let matchedCount = 0, outOfRangeCount = 0; const unmatched = [];
       placemarkLayers.forEach(layer => {
+        if(layer.isBoundaryPolygon){ layer.setStyle(BOUNDARY_STYLE); layer._paintGroup = null; layer.unbindPopup(); return; }
         const farm = farms.find(f => f.name === layer.farmName);
         const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
         const row = latestByTalhao.get(key);
