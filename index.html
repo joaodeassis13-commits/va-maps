@@ -1068,6 +1068,38 @@
   };
   categoryFilterControl.addTo(map);
 
+  // Same date filters as the "Mapa" tab, as a floating control on the map
+  // itself — lets the user change the date without leaving the map.
+  const dateFilterControl = L.control({ position: 'topright' });
+  dateFilterControl.onAdd = function(){
+    const div = L.DomUtil.create('div', 'leaflet-bar date-control');
+    const body = document.createElement('div');
+    body.innerHTML =
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Ano</label>' +
+      '<select id="mapCtrlYearSelect" style="width:100%;margin-bottom:6px;"><option value="">Todos</option></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Mês</label>' +
+      '<select id="mapCtrlMonthSelect" style="width:100%;margin-bottom:6px;"><option value="">Todos</option></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Período</label>' +
+      '<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px;">' +
+        '<select id="mapCtrlStartDateSelect" style="flex:1;min-width:0;font-size:11px;"><option value="">Início</option></select>' +
+        '<span class="rr-dash">–</span>' +
+        '<select id="mapCtrlEndDateSelect" style="flex:1;min-width:0;font-size:11px;"><option value="">Recente</option></select>' +
+      '</div>' +
+      '<button type="button" class="primary-btn" id="mapCtrlApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>';
+    makeCollapsible(div, 'Data', body);
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  };
+  dateFilterControl.addTo(map);
+  document.getElementById('mapCtrlApplyBtn').addEventListener('click', () => {
+    document.getElementById('mapaYearSelect').value = document.getElementById('mapCtrlYearSelect').value;
+    document.getElementById('mapaMonthSelect').value = document.getElementById('mapCtrlMonthSelect').value;
+    document.getElementById('mapaStartDateSelect').value = document.getElementById('mapCtrlStartDateSelect').value;
+    document.getElementById('mapaEndDateSelect').value = document.getElementById('mapCtrlEndDateSelect').value;
+    document.getElementById('renderMapaBtn').click();
+  });
+
   function renderCategoryFilterBody(){
     if(!categoryFilterBodyEl) return;
     if(categoryFilterEntries.length === 0){
@@ -2215,45 +2247,71 @@
   }
   const MONTH_NAMES = { '01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro' };
 
+  // Two input surfaces share the same Ano/Mês/Período logic: the fields in
+  // the control panel, and the floating "Data" control on the map itself.
+  const DATE_FILTER_INSTANCES = [
+    { year: 'mapaYearSelect', month: 'mapaMonthSelect', start: 'mapaStartDateSelect', end: 'mapaEndDateSelect' },
+    { year: 'mapCtrlYearSelect', month: 'mapCtrlMonthSelect', start: 'mapCtrlStartDateSelect', end: 'mapCtrlEndDateSelect' }
+  ];
+
   function populateMapaYearSelect(){
     const years = Array.from(new Set(availableDatesCache.map(d => d.slice(0,4)))).sort((a,b) => b.localeCompare(a));
-    const sel = document.getElementById('mapaYearSelect');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">Todos</option>' + years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
-    if(years.includes(prev)) sel.value = prev;
+    DATE_FILTER_INSTANCES.forEach(ids => {
+      const sel = document.getElementById(ids.year);
+      if(!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">Todos</option>' + years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
+      if(years.includes(prev)) sel.value = prev;
+    });
     populateMapaMonthSelect();
   }
-  document.getElementById('mapaYearSelect').addEventListener('change', populateMapaMonthSelect);
-
   function populateMapaMonthSelect(){
-    const year = document.getElementById('mapaYearSelect').value;
-    const relevant = year ? availableDatesCache.filter(d => d.slice(0,4) === year) : availableDatesCache;
-    const months = Array.from(new Set(relevant.map(d => d.slice(5,7)))).sort();
-    const sel = document.getElementById('mapaMonthSelect');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">Todos</option>' + months.map(m => '<option value="' + m + '">' + MONTH_NAMES[m] + '</option>').join('');
-    if(months.includes(prev)) sel.value = prev;
+    DATE_FILTER_INSTANCES.forEach(ids => {
+      const yearSel = document.getElementById(ids.year);
+      const monthSel = document.getElementById(ids.month);
+      if(!yearSel || !monthSel) return;
+      const year = yearSel.value;
+      const relevant = year ? availableDatesCache.filter(d => d.slice(0,4) === year) : availableDatesCache;
+      const months = Array.from(new Set(relevant.map(d => d.slice(5,7)))).sort();
+      const prev = monthSel.value;
+      monthSel.innerHTML = '<option value="">Todos</option>' + months.map(m => '<option value="' + m + '">' + MONTH_NAMES[m] + '</option>').join('');
+      if(months.includes(prev)) monthSel.value = prev;
+      if(year && relevant.length === 1) monthSel.value = relevant[0].slice(5,7);
+    });
     populateMapaPeriodSelects();
   }
-  document.getElementById('mapaMonthSelect').addEventListener('change', populateMapaPeriodSelects);
-
   function populateMapaPeriodSelects(){
-    const year = document.getElementById('mapaYearSelect').value;
-    const month = document.getElementById('mapaMonthSelect').value;
-    const relevant = availableDatesCache.filter(d => (!year || d.slice(0,4) === year) && (!month || d.slice(5,7) === month));
-    const sorted = relevant.slice().sort();
-    const optionsHtml = sorted.map(d => {
-      const [y, m, dd] = d.split('-');
-      return '<option value="' + d + '">' + dd + '/' + m + '/' + y + '</option>';
-    }).join('');
-    const startSel = document.getElementById('mapaStartDateSelect');
-    const endSel = document.getElementById('mapaEndDateSelect');
-    const prevStart = startSel.value, prevEnd = endSel.value;
-    startSel.innerHTML = '<option value="">Início</option>' + optionsHtml;
-    endSel.innerHTML = '<option value="">Mais recente</option>' + optionsHtml;
-    if(sorted.includes(prevStart)) startSel.value = prevStart;
-    if(sorted.includes(prevEnd)) endSel.value = prevEnd;
+    DATE_FILTER_INSTANCES.forEach(ids => {
+      const yearSel = document.getElementById(ids.year);
+      const monthSel = document.getElementById(ids.month);
+      const startSel = document.getElementById(ids.start);
+      const endSel = document.getElementById(ids.end);
+      if(!yearSel || !monthSel || !startSel || !endSel) return;
+      const year = yearSel.value, month = monthSel.value;
+      const relevant = availableDatesCache.filter(d => (!year || d.slice(0,4) === year) && (!month || d.slice(5,7) === month));
+      const sorted = relevant.slice().sort();
+      const optionsHtml = sorted.map(d => {
+        const [y, m, dd] = d.split('-');
+        return '<option value="' + d + '">' + dd + '/' + m + '/' + y + '</option>';
+      }).join('');
+      const prevStart = startSel.value, prevEnd = endSel.value;
+      startSel.innerHTML = '<option value="">Início</option>' + optionsHtml;
+      endSel.innerHTML = '<option value="">Mais recente</option>' + optionsHtml;
+      if(sorted.includes(prevStart)) startSel.value = prevStart;
+      if(sorted.includes(prevEnd)) endSel.value = prevEnd;
+      if((year || month) && sorted.length === 1){
+        startSel.value = sorted[0];
+        endSel.value = sorted[0];
+      }
+    });
   }
+
+  DATE_FILTER_INSTANCES.forEach(ids => {
+    const yearSel = document.getElementById(ids.year);
+    const monthSel = document.getElementById(ids.month);
+    if(yearSel) yearSel.addEventListener('change', populateMapaMonthSelect);
+    if(monthSel) monthSel.addEventListener('change', populateMapaPeriodSelects);
+  });
 
   document.getElementById('mapaSelect').addEventListener('change', populateMapaVariableSelect);
   function populateMapaVariableSelect(){
