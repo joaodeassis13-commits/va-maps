@@ -741,27 +741,11 @@
                   <div class="multi-select-panel" id="secondaryVarPanel" style="display:none;"></div>
                 </div>
               </div>
-              <div class="field-group" style="flex:0 0 110px;">
-                <label class="field-label">Ano</label>
-                <select id="mapaYearSelect"><option value="">Todos</option></select>
-              </div>
-              <div class="field-group" style="flex:0 0 140px;">
-                <label class="field-label">Mês</label>
-                <select id="mapaMonthSelect"><option value="">Todos</option></select>
-              </div>
-              <div class="field-group" style="flex:0 0 300px;">
-                <label class="field-label">Período</label>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <select id="mapaStartDateSelect" style="flex:1;"><option value="">Início</option></select>
-                  <span class="rr-dash">–</span>
-                  <select id="mapaEndDateSelect" style="flex:1;"><option value="">Mais recente</option></select>
-                </div>
-              </div>
               <div class="field-group" style="flex:0 0 auto;">
                 <label class="field-label">&nbsp;</label>
                 <button class="primary-btn" id="renderMapaBtn" style="margin-top:0; width:auto; padding:9px 20px; white-space:nowrap;">Mostrar no mapa</button>
               </div>
-              <div class="field-status" style="flex-basis:100%; margin-top:2px;">Deixe início e fim em branco para usar o dado mais recente de cada talhão. Escolher a mesma data em início e fim mostra um dia específico. Ano/Mês filtram quais datas aparecem no período. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
+              <div class="field-status" style="flex-basis:100%; margin-top:2px;">Escolha o mapa e a variável aqui; a data (Ano/Mês/Período) fica no painel "Data", dentro do próprio mapa. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
               <div class="field-status" id="mapaStatus" style="flex-basis:100%;"></div>
             </div>
           </div>
@@ -1085,7 +1069,8 @@
         '<span class="rr-dash">–</span>' +
         '<select id="mapCtrlEndDateSelect" style="flex:1;min-width:0;font-size:11px;"><option value="">Recente</option></select>' +
       '</div>' +
-      '<button type="button" class="primary-btn" id="mapCtrlApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>';
+      '<button type="button" class="primary-btn" id="mapCtrlApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>' +
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;line-height:1.4;">Início/fim em branco = dado mais recente. Mesma data nos dois = um dia só.</div>';
     makeCollapsible(div, 'Data', body);
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
@@ -1093,10 +1078,6 @@
   };
   dateFilterControl.addTo(map);
   document.getElementById('mapCtrlApplyBtn').addEventListener('click', () => {
-    document.getElementById('mapaYearSelect').value = document.getElementById('mapCtrlYearSelect').value;
-    document.getElementById('mapaMonthSelect').value = document.getElementById('mapCtrlMonthSelect').value;
-    document.getElementById('mapaStartDateSelect').value = document.getElementById('mapCtrlStartDateSelect').value;
-    document.getElementById('mapaEndDateSelect').value = document.getElementById('mapCtrlEndDateSelect').value;
     document.getElementById('renderMapaBtn').click();
   });
 
@@ -1395,10 +1376,10 @@
       mapDefId: document.getElementById('mapaSelect').value,
       varIdx: document.getElementById('mapaVariableSelect').value,
       secondaryIdxs: getSelectedSecondaryIdxs(),
-      year: document.getElementById('mapaYearSelect').value,
-      month: document.getElementById('mapaMonthSelect').value,
-      startDate: document.getElementById('mapaStartDateSelect').value,
-      endDate: document.getElementById('mapaEndDateSelect').value
+      year: document.getElementById('mapCtrlYearSelect').value,
+      month: document.getElementById('mapCtrlMonthSelect').value,
+      startDate: document.getElementById('mapCtrlStartDateSelect').value,
+      endDate: document.getElementById('mapCtrlEndDateSelect').value
     };
   }
   async function restoreCategoryMapState(category){
@@ -1414,12 +1395,12 @@
       cb.checked = state.secondaryIdxs.includes(Number(cb.value));
     });
     updateSecondaryVarTriggerLabel();
-    document.getElementById('mapaYearSelect').value = state.year || '';
+    document.getElementById('mapCtrlYearSelect').value = state.year || '';
     populateMapaMonthSelect();
-    document.getElementById('mapaMonthSelect').value = state.month || '';
+    document.getElementById('mapCtrlMonthSelect').value = state.month || '';
     populateMapaPeriodSelects();
-    document.getElementById('mapaStartDateSelect').value = state.startDate || '';
-    document.getElementById('mapaEndDateSelect').value = state.endDate || '';
+    document.getElementById('mapCtrlStartDateSelect').value = state.startDate || '';
+    document.getElementById('mapCtrlEndDateSelect').value = state.endDate || '';
     document.getElementById('renderMapaBtn').click();
   }
 
@@ -2250,7 +2231,6 @@
   // Two input surfaces share the same Ano/Mês/Período logic: the fields in
   // the control panel, and the floating "Data" control on the map itself.
   const DATE_FILTER_INSTANCES = [
-    { year: 'mapaYearSelect', month: 'mapaMonthSelect', start: 'mapaStartDateSelect', end: 'mapaEndDateSelect' },
     { year: 'mapCtrlYearSelect', month: 'mapCtrlMonthSelect', start: 'mapCtrlStartDateSelect', end: 'mapCtrlEndDateSelect' }
   ];
 
@@ -2367,8 +2347,8 @@
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const varIdx = Number(document.getElementById('mapaVariableSelect').value);
     const secondaryIdxs = getSelectedSecondaryIdxs();
-    const startDate = document.getElementById('mapaStartDateSelect').value || null;
-    const endDate = document.getElementById('mapaEndDateSelect').value || null;
+    const startDate = document.getElementById('mapCtrlStartDateSelect').value || null;
+    const endDate = document.getElementById('mapCtrlEndDateSelect').value || null;
     const statusEl = document.getElementById('mapaStatus');
     if(!def || !Number.isInteger(varIdx)){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
     const varDef = def.variables[varIdx];
