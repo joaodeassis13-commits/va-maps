@@ -2766,10 +2766,24 @@
       const minY = Math.min(...pts.map(p=>p.y)), maxY = Math.max(...pts.map(p=>p.y));
       const w = Math.max(1, Math.round(maxX-minX)), h = Math.max(1, Math.round(maxY-minY));
 
+      // The legend gets its own strip below the cropped image, instead of
+      // sitting on top of it — a tight crop of just the perimeter has no
+      // "empty corner" like the full map view did, so overlaying it there
+      // would cover real talhões.
+      const legendMargin = Math.max(8, Math.round(w * 0.02));
+      let legendW = 0, legendH = 0;
+      if(legendCanvas){
+        const maxLegendW = w - legendMargin * 2;
+        const scale = Math.min(1, maxLegendW / legendCanvas.width);
+        legendW = legendCanvas.width * scale;
+        legendH = legendCanvas.height * scale;
+      }
+      const legendStripH = legendCanvas ? Math.round(legendH + legendMargin * 2) : 0;
+
       const out = document.createElement('canvas');
-      out.width = w; out.height = h;
+      out.width = w; out.height = h + legendStripH;
       const ctx = out.getContext('2d');
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h + legendStripH);
       ctx.save(); ctx.beginPath();
       pts.forEach((p,i) => { const x=p.x-minX, y=p.y-minY; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
       ctx.closePath(); ctx.clip();
@@ -2777,11 +2791,7 @@
       ctx.restore();
 
       if(legendCanvas){
-        const margin = Math.max(8, Math.round(w*0.02));
-        const maxLegendW = w*0.45;
-        const scale = Math.min(1, maxLegendW/legendCanvas.width);
-        const lw = legendCanvas.width*scale, lh = legendCanvas.height*scale;
-        ctx.drawImage(legendCanvas, margin, h-lh-margin, lw, lh);
+        ctx.drawImage(legendCanvas, legendMargin, h + legendMargin, legendW, legendH);
       }
 
       out.toBlob((blob) => {
