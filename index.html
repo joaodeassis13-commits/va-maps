@@ -2713,11 +2713,51 @@
     });
   }
 
+  function pointInPolygonLocal(x, y, poly){
+    let inside = false;
+    for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if(intersect) inside = !inside;
+    }
+    return inside;
+  }
+  function countCornerOverlap(rectX, rectY, rectW, rectH, poly){
+    let hits = 0;
+    const steps = 4;
+    for(let i = 0; i <= steps; i++){
+      for(let j = 0; j <= steps; j++){
+        if(pointInPolygonLocal(rectX + (rectW * i / steps), rectY + (rectH * j / steps), poly)) hits++;
+      }
+    }
+    return hits;
+  }
+
   async function captureImage(perimeter){
     if(typeof html2canvas === 'undefined'){ setStatus('warn', 'A biblioteca de captura não carregou (é preciso estar com internet e, de preferência, fora do preview do Claude).'); return; }
     setStatus('info', 'Preparando captura de "' + perimeter.name + '"…');
     if(viewPreviewTimer){ clearTimeout(viewPreviewTimer); viewPreviewTimer = null; }
     if(viewPreviewLayer){ map.removeLayer(viewPreviewLayer); viewPreviewLayer = null; }
+
+    // Use the whole device screen while capturing, regardless of how big the
+    // browser window/panel currently is — resolution depends on the pixels
+    // available at capture time, not at draw time, so this maximizes quality.
+    const mapPanelEl = document.getElementById('mapPanel');
+    const wasAlreadyFullscreen = isFullscreenActive();
+    let enteredFullscreenForCapture = false;
+    if(!wasAlreadyFullscreen){
+      try{
+        const req = mapPanelEl.requestFullscreen || mapPanelEl.webkitRequestFullscreen;
+        if(req){
+          await req.call(mapPanelEl);
+          enteredFullscreenForCapture = true;
+          await new Promise(r => setTimeout(r, 250));
+          map.invalidateSize();
+          await new Promise(r => setTimeout(r, 250));
+        }
+      }catch(err){ /* fullscreen not available/blocked — capture with whatever size we have */ }
+    }
+
     try{
       const includeLegend = document.getElementById('includeLegendCheckbox').checked;
       const legendEl = document.getElementById('legend');
@@ -2725,7 +2765,7 @@
       if(includeLegend && legendEl.dataset.hasContent === '1'){
         const wasHidden = legendEl.style.display === 'none';
         if(wasHidden) legendEl.style.display = 'block';
-        try{ legendCanvas = await html2canvas(legendEl, { useCORS: true, backgroundColor: null, logging: false }); }
+        try{ legendCanvas = await html2canvas(legendEl, { useCORS: true, backgroundColor: null, logging: false, scale: 2 }); }
         finally { if(wasHidden) legendEl.style.display = 'none'; }
       }
 
@@ -2765,25 +2805,12 @@
       const minX = Math.min(...pts.map(p=>p.x)), maxX = Math.max(...pts.map(p=>p.x));
       const minY = Math.min(...pts.map(p=>p.y)), maxY = Math.max(...pts.map(p=>p.y));
       const w = Math.max(1, Math.round(maxX-minX)), h = Math.max(1, Math.round(maxY-minY));
-
-      // The legend gets its own strip below the cropped image, instead of
-      // sitting on top of it — a tight crop of just the perimeter has no
-      // "empty corner" like the full map view did, so overlaying it there
-      // would cover real talhões.
-      const legendMargin = Math.max(8, Math.round(w * 0.02));
-      let legendW = 0, legendH = 0;
-      if(legendCanvas){
-        const maxLegendW = w - legendMargin * 2;
-        const scale = Math.min(1, maxLegendW / legendCanvas.width);
-        legendW = legendCanvas.width * scale;
-        legendH = legendCanvas.height * scale;
-      }
-      const legendStripH = legendCanvas ? Math.round(legendH + legendMargin * 2) : 0;
+      const localPoly = pts.map(p => [p.x - minX, p.y - minY]);
 
       const out = document.createElement('canvas');
-      out.width = w; out.height = h + legendStripH;
+      out.width = w; out.height = h;
       const ctx = out.getContext('2d');
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h + legendStripH);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
       ctx.save(); ctx.beginPath();
       pts.forEach((p,i) => { const x=p.x-minX, y=p.y-minY; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
       ctx.closePath(); ctx.clip();
@@ -2791,22 +2818,43 @@
       ctx.restore();
 
       if(legendCanvas){
-        ctx.drawImage(legendCanvas, legendMargin, h + legendMargin, legendW, legendH);
+        const margin = Math.max(8, Math.round(w * 0.02));
+        const maxLegendW = w * 0.45;
+        const scale = Math.min(1, maxLegendW / legendCanvas.width);
+        const lw = legendCanvas.width * scale, lh = legendCanvas.height * scale;
+        // pick whichever corner overlaps the farm shape the least, so the
+        // legend sits over background instead of covering real talhões.
+        const candidates = [
+          { x: margin, y: margin },
+          { x: w - lw - margin, y: margin },
+          { x: margin, y: h - lh - margin },
+          { x: w - lw - margin, y: h - lh - margin }
+        ];
+        let best = candidates[0], bestOverlap = Infinity;
+        candidates.forEach(c => {
+          const overlap = countCornerOverlap(c.x, c.y, lw, lh, localPoly);
+          if(overlap < bestOverlap){ bestOverlap = overlap; best = c; }
+        });
+        ctx.drawImage(legendCanvas, best.x, best.y, lw, lh);
       }
 
       out.toBlob((blob) => {
         if(!blob){ setStatus('warn', 'Não foi possível gerar a imagem.'); return; }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = sanitizeFilename(perimeter.name) + '.jpg';
+        a.href = url; a.download = sanitizeFilename(perimeter.name) + '.png';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         setStatus('ok', 'Imagem de "' + perimeter.name + '" baixada, recortada exatamente na área do perímetro.');
-      }, 'image/jpeg', 0.97);
+      }, 'image/png');
     }catch(err){
       setStatus('warn', 'Não foi possível capturar a imagem: ' + err.message + '. Confira se está com internet e, de preferência, fora do preview do Claude.');
     }finally{
       document.body.classList.remove('capturing');
+      if(enteredFullscreenForCapture){
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if(exit) exit.call(document);
+      }
     }
   }
 
