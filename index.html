@@ -2744,10 +2744,20 @@
         map.fitBounds(polyBounds, { padding: [0,0], animate: false });
       }
       await waitForActiveLayerLoad(3000);
-      await new Promise(r => setTimeout(r, 350));
+      // Give every tile that's currently in the DOM a chance to fully decode,
+      // not just the ones the base layer's own "load" event already tracked.
+      const tileImgs = Array.from(document.querySelectorAll('#map img'));
+      await Promise.all(tileImgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
+        img.addEventListener('load', res, { once: true });
+        img.addEventListener('error', res, { once: true });
+        setTimeout(res, 4000);
+      })));
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise(r => setTimeout(r, 500));
 
       const mapEl = document.getElementById('map');
-      const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false });
+      const captureScale = Math.max(window.devicePixelRatio || 1, 2);
+      const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false, scale: captureScale, imageTimeout: 15000 });
 
       const scaleX = canvas.width / mapEl.clientWidth;
       const scaleY = canvas.height / mapEl.clientHeight;
@@ -2782,7 +2792,7 @@
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         setStatus('ok', 'Imagem de "' + perimeter.name + '" baixada, recortada exatamente na área do perímetro.');
-      }, 'image/jpeg', 0.92);
+      }, 'image/jpeg', 0.97);
     }catch(err){
       setStatus('warn', 'Não foi possível capturar a imagem: ' + err.message + '. Confira se está com internet e, de preferência, fora do preview do Claude.');
     }finally{
