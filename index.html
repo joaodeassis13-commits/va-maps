@@ -2713,25 +2713,6 @@
     });
   }
 
-  function pointInPolygonLocal(x, y, poly){
-    let inside = false;
-    for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){
-      const [xi, yi] = poly[i], [xj, yj] = poly[j];
-      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-      if(intersect) inside = !inside;
-    }
-    return inside;
-  }
-  function countCornerOverlap(rectX, rectY, rectW, rectH, poly){
-    let hits = 0;
-    const steps = 4;
-    for(let i = 0; i <= steps; i++){
-      for(let j = 0; j <= steps; j++){
-        if(pointInPolygonLocal(rectX + (rectW * i / steps), rectY + (rectH * j / steps), poly)) hits++;
-      }
-    }
-    return hits;
-  }
 
   async function captureImage(perimeter){
     if(typeof html2canvas === 'undefined'){ setStatus('warn', 'A biblioteca de captura não carregou (é preciso estar com internet e, de preferência, fora do preview do Claude).'); return; }
@@ -2796,16 +2777,24 @@
       await new Promise(r => setTimeout(r, 500));
 
       const mapEl = document.getElementById('map');
+      map.invalidateSize();
+      await new Promise(r => setTimeout(r, 150));
+      // Measure exactly where the perimeter sits BEFORE starting html2canvas
+      // (which can take a moment to render) — measuring only after it
+      // finishes leaves a window where a layout shift (e.g. from fullscreen
+      // settling) could make the crop land in the wrong place.
+      const preShotWidth = mapEl.clientWidth, preShotHeight = mapEl.clientHeight;
+      const rawPts = perimeter.latlngs.map(([lat,lng]) => map.latLngToContainerPoint([lat,lng]));
+
       const captureScale = Math.max(window.devicePixelRatio || 1, 2);
       const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false, scale: captureScale, imageTimeout: 15000 });
 
-      const scaleX = canvas.width / mapEl.clientWidth;
-      const scaleY = canvas.height / mapEl.clientHeight;
-      const pts = perimeter.latlngs.map(([lat,lng]) => { const p = map.latLngToContainerPoint([lat,lng]); return { x: p.x*scaleX, y: p.y*scaleY }; });
+      const scaleX = canvas.width / preShotWidth;
+      const scaleY = canvas.height / preShotHeight;
+      const pts = rawPts.map(p => ({ x: p.x*scaleX, y: p.y*scaleY }));
       const minX = Math.min(...pts.map(p=>p.x)), maxX = Math.max(...pts.map(p=>p.x));
       const minY = Math.min(...pts.map(p=>p.y)), maxY = Math.max(...pts.map(p=>p.y));
       const w = Math.max(1, Math.round(maxX-minX)), h = Math.max(1, Math.round(maxY-minY));
-      const localPoly = pts.map(p => [p.x - minX, p.y - minY]);
 
       const out = document.createElement('canvas');
       out.width = w; out.height = h;
@@ -2822,20 +2811,8 @@
         const maxLegendW = w * 0.45;
         const scale = Math.min(1, maxLegendW / legendCanvas.width);
         const lw = legendCanvas.width * scale, lh = legendCanvas.height * scale;
-        // pick whichever corner overlaps the farm shape the least, so the
-        // legend sits over background instead of covering real talhões.
-        const candidates = [
-          { x: margin, y: margin },
-          { x: w - lw - margin, y: margin },
-          { x: margin, y: h - lh - margin },
-          { x: w - lw - margin, y: h - lh - margin }
-        ];
-        let best = candidates[0], bestOverlap = Infinity;
-        candidates.forEach(c => {
-          const overlap = countCornerOverlap(c.x, c.y, lw, lh, localPoly);
-          if(overlap < bestOverlap){ bestOverlap = overlap; best = c; }
-        });
-        ctx.drawImage(legendCanvas, best.x, best.y, lw, lh);
+        // Same corner it occupies on the live map (bottom-left).
+        ctx.drawImage(legendCanvas, margin, h - lh - margin, lw, lh);
       }
 
       out.toBlob((blob) => {
