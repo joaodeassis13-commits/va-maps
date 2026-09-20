@@ -2691,7 +2691,7 @@
     const name = document.getElementById('perimeterNameInput').value.trim();
     if(!name) return;
     try{
-      const { data, error } = await sb.from('perimeters').insert({ name, latlngs: drawPoints.slice() }).select().single();
+      const { data, error } = await sb.from('perimeters').insert({ name, latlngs: drawPoints.slice(), zoom: map.getZoom() }).select().single();
       if(error) throw error;
       perimeters.unshift(data);
       renderPerimetersList();
@@ -2731,7 +2731,18 @@
 
       document.body.classList.add('capturing');
       const polyBounds = L.polygon(perimeter.latlngs).getBounds();
-      map.fitBounds(polyBounds, { padding: [0,0], animate: false });
+      if(Number.isFinite(perimeter.zoom)){
+        map.setView(polyBounds.getCenter(), perimeter.zoom, { animate: false });
+        if(!map.getBounds().contains(polyBounds)){
+          // the stored zoom doesn't fully fit this screen (e.g. much smaller
+          // viewport than when it was drawn) — fall back to fitting it in,
+          // rather than cutting the capture off.
+          map.fitBounds(polyBounds, { padding: [0,0], animate: false });
+          setStatus('info', 'O zoom original do perímetro não coube nesta tela; ajustando para caber por inteiro…');
+        }
+      } else {
+        map.fitBounds(polyBounds, { padding: [0,0], animate: false });
+      }
       await waitForActiveLayerLoad(3000);
       await new Promise(r => setTimeout(r, 350));
 
