@@ -2754,7 +2754,46 @@
     }
     await Promise.all(jobs);
 
-    return { canvas: rawCanvas, worldPts, minX, minY, outScale };
+    return { canvas: rawCanvas, worldPts, minX, minY, outScale, zoom };
+  }
+
+  // Draws one talhão polygon (with whatever fill/stroke it currently has —
+  // thematic color, "sem dado" style, boundary outline, etc.) onto the
+  // capture canvas, in the same projection as the satellite tiles so
+  // everything lines up.
+  function drawPolygonLayerForCapture(ctx, layer, zoom, minX, minY, outScale){
+    const style = layer.options || {};
+    ctx.save();
+    ctx.beginPath();
+    let any = false;
+    function addRing(ring){
+      ring.forEach((ll, i) => {
+        const p = map.project(ll, zoom);
+        const x = (p.x - minX) * outScale, y = (p.y - minY) * outScale;
+        if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        any = true;
+      });
+      ctx.closePath();
+    }
+    (function walk(node){
+      if(Array.isArray(node) && node.length && node[0] instanceof L.LatLng) addRing(node);
+      else if(Array.isArray(node)) node.forEach(walk);
+    })(layer.getLatLngs());
+    if(!any){ ctx.restore(); return; }
+
+    if(style.fill !== false){
+      ctx.fillStyle = style.fillColor || style.color || '#3a4249';
+      ctx.globalAlpha = (style.fillOpacity != null ? style.fillOpacity : 0.45);
+      ctx.fill('evenodd');
+      ctx.globalAlpha = 1;
+    }
+    if(style.stroke !== false && (style.weight || 0) > 0){
+      ctx.strokeStyle = style.color || '#5A6B63';
+      ctx.lineWidth = (style.weight || 1) * outScale;
+      ctx.setLineDash(style.dashArray ? String(style.dashArray).split(',').map(n => parseFloat(n) * outScale) : []);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   async function captureImage(perimeter){
@@ -2779,7 +2818,7 @@
         finally { if(wasHidden) legendEl.style.display = 'none'; }
       }
 
-      const { canvas, worldPts, minX, minY, outScale } = await composeMapCanvasForPerimeter(perimeter);
+      const { canvas, worldPts, minX, minY, outScale, zoom } = await composeMapCanvasForPerimeter(perimeter);
       const w = canvas.width, h = canvas.height;
 
       const out = document.createElement('canvas');
@@ -2793,6 +2832,8 @@
       });
       ctx.closePath(); ctx.clip();
       ctx.drawImage(canvas, 0, 0);
+      const visibleLayers = placemarkLayers.filter(l => featureGroup.hasLayer(l));
+      visibleLayers.forEach(layer => drawPolygonLayerForCapture(ctx, layer, zoom, minX, minY, outScale));
       ctx.restore();
 
       if(legendCanvas){
