@@ -506,12 +506,6 @@
   }
   .draw-toolbar .mini-btn{ flex-shrink:0; }
 
-  body.capturing .leaflet-control-container,
-  body.capturing .legend,
-  body.capturing .legend-show-btn,
-  body.capturing .tile-notice,
-  body.capturing .draw-toolbar{ display:none !important; }
-
   .legend-title{
     font-size: 12px; font-weight:600; color: var(--text);
     margin-bottom: 8px;
@@ -2704,106 +2698,101 @@
     }
   });
 
-  function waitForActiveLayerLoad(timeoutMs){
-    return new Promise(resolve => {
-      let done = false;
-      function finish(){ if(done) return; done = true; currentBaseLayer.off('load', finish); resolve(); }
-      currentBaseLayer.once('load', finish);
-      setTimeout(finish, timeoutMs);
+
+  function loadTileImageForCapture(url){
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null); // a missing tile becomes blank, doesn't stall the whole capture
+      img.src = url;
     });
   }
 
+  // Builds the map portion of the capture by fetching the exact tiles that
+  // cover the perimeter, at the exact zoom it was drawn at, and drawing them
+  // ourselves onto a canvas — instead of screenshotting the live page, which
+  // is how the previous approach could end up misaligned (html2canvas has a
+  // known limitation reading Leaflet's CSS-transform tile positioning).
+  async function composeMapCanvasForPerimeter(perimeter){
+    const zoom = Number.isFinite(perimeter.zoom) ? perimeter.zoom : map.getZoom();
+    const tileLayer = currentBaseLayer;
+    const tileSize = (tileLayer.getTileSize ? tileLayer.getTileSize().x : 256);
+
+    // Projecting straight into this zoom's world-pixel space is completely
+    // independent of the current viewport, window size or device screen.
+    const worldPts = perimeter.latlngs.map(([lat,lng]) => map.project([lat,lng], zoom));
+    const minX = Math.min(...worldPts.map(p=>p.x)), maxX = Math.max(...worldPts.map(p=>p.x));
+    const minY = Math.min(...worldPts.map(p=>p.y)), maxY = Math.max(...worldPts.map(p=>p.y));
+
+    const outScale = 2; // supersample beyond native tile resolution for a sharper result
+    const w = Math.max(1, Math.round((maxX - minX) * outScale));
+    const h = Math.max(1, Math.round((maxY - minY) * outScale));
+
+    const rawCanvas = document.createElement('canvas');
+    rawCanvas.width = w; rawCanvas.height = h;
+    const rctx = rawCanvas.getContext('2d');
+    rctx.fillStyle = '#ffffff'; rctx.fillRect(0, 0, w, h);
+
+    const maxTileIndex = Math.pow(2, zoom) - 1;
+    const tileMinX = Math.max(0, Math.floor(minX / tileSize)), tileMaxX = Math.min(maxTileIndex, Math.floor(maxX / tileSize));
+    const tileMinY = Math.max(0, Math.floor(minY / tileSize)), tileMaxY = Math.min(maxTileIndex, Math.floor(maxY / tileSize));
+
+    const jobs = [];
+    for(let tx = tileMinX; tx <= tileMaxX; tx++){
+      for(let ty = tileMinY; ty <= tileMaxY; ty++){
+        const coords = L.point(tx, ty);
+        coords.z = zoom;
+        const url = tileLayer.getTileUrl(coords);
+        jobs.push(loadTileImageForCapture(url).then(img => {
+          if(!img) return;
+          const destX = (tx * tileSize - minX) * outScale;
+          const destY = (ty * tileSize - minY) * outScale;
+          rctx.drawImage(img, destX, destY, tileSize * outScale, tileSize * outScale);
+        }));
+      }
+    }
+    await Promise.all(jobs);
+
+    return { canvas: rawCanvas, worldPts, minX, minY, outScale };
+  }
 
   async function captureImage(perimeter){
-    if(typeof html2canvas === 'undefined'){ setStatus('warn', 'A biblioteca de captura não carregou (é preciso estar com internet e, de preferência, fora do preview do Claude).'); return; }
-    setStatus('info', 'Preparando captura de "' + perimeter.name + '"…');
     if(viewPreviewTimer){ clearTimeout(viewPreviewTimer); viewPreviewTimer = null; }
     if(viewPreviewLayer){ map.removeLayer(viewPreviewLayer); viewPreviewLayer = null; }
 
-    // Use the whole device screen while capturing, regardless of how big the
-    // browser window/panel currently is — resolution depends on the pixels
-    // available at capture time, not at draw time, so this maximizes quality.
-    const mapPanelEl = document.getElementById('mapPanel');
-    const wasAlreadyFullscreen = isFullscreenActive();
-    let enteredFullscreenForCapture = false;
-    if(!wasAlreadyFullscreen){
-      try{
-        const req = mapPanelEl.requestFullscreen || mapPanelEl.webkitRequestFullscreen;
-        if(req){
-          await req.call(mapPanelEl);
-          enteredFullscreenForCapture = true;
-          await new Promise(r => setTimeout(r, 250));
-          map.invalidateSize();
-          await new Promise(r => setTimeout(r, 250));
-        }
-      }catch(err){ /* fullscreen not available/blocked — capture with whatever size we have */ }
+    const canManualComposite = currentBaseLayer && typeof currentBaseLayer.getTileUrl === 'function';
+    if(!canManualComposite){
+      setStatus('warn', 'Essa camada de mapa (Sentinel/WMS) não suporta captura por enquanto — troque para "Satélite" ou "NDVI MODIS" antes de capturar.');
+      return;
     }
 
+    setStatus('info', 'Preparando captura de "' + perimeter.name + '"…');
     try{
       const includeLegend = document.getElementById('includeLegendCheckbox').checked;
       const legendEl = document.getElementById('legend');
       let legendCanvas = null;
-      if(includeLegend && legendEl.dataset.hasContent === '1'){
+      if(includeLegend && legendEl.dataset.hasContent === '1' && typeof html2canvas !== 'undefined'){
         const wasHidden = legendEl.style.display === 'none';
         if(wasHidden) legendEl.style.display = 'block';
         try{ legendCanvas = await html2canvas(legendEl, { useCORS: true, backgroundColor: null, logging: false, scale: 2 }); }
         finally { if(wasHidden) legendEl.style.display = 'none'; }
       }
 
-      document.body.classList.add('capturing');
-      const polyBounds = L.polygon(perimeter.latlngs).getBounds();
-      if(Number.isFinite(perimeter.zoom)){
-        map.setView(polyBounds.getCenter(), perimeter.zoom, { animate: false });
-        if(!map.getBounds().contains(polyBounds)){
-          // the stored zoom doesn't fully fit this screen (e.g. much smaller
-          // viewport than when it was drawn) — fall back to fitting it in,
-          // rather than cutting the capture off.
-          map.fitBounds(polyBounds, { padding: [0,0], animate: false });
-          setStatus('info', 'O zoom original do perímetro não coube nesta tela; ajustando para caber por inteiro…');
-        }
-      } else {
-        map.fitBounds(polyBounds, { padding: [0,0], animate: false });
-      }
-      await waitForActiveLayerLoad(3000);
-      // Give every tile that's currently in the DOM a chance to fully decode,
-      // not just the ones the base layer's own "load" event already tracked.
-      const tileImgs = Array.from(document.querySelectorAll('#map img'));
-      await Promise.all(tileImgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
-        img.addEventListener('load', res, { once: true });
-        img.addEventListener('error', res, { once: true });
-        setTimeout(res, 4000);
-      })));
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await new Promise(r => setTimeout(r, 500));
-
-      const mapEl = document.getElementById('map');
-      map.invalidateSize();
-      await new Promise(r => setTimeout(r, 150));
-      // Measure exactly where the perimeter sits BEFORE starting html2canvas
-      // (which can take a moment to render) — measuring only after it
-      // finishes leaves a window where a layout shift (e.g. from fullscreen
-      // settling) could make the crop land in the wrong place.
-      const preShotWidth = mapEl.clientWidth, preShotHeight = mapEl.clientHeight;
-      const rawPts = perimeter.latlngs.map(([lat,lng]) => map.latLngToContainerPoint([lat,lng]));
-
-      const captureScale = Math.max(window.devicePixelRatio || 1, 2);
-      const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false, scale: captureScale, imageTimeout: 15000 });
-
-      const scaleX = canvas.width / preShotWidth;
-      const scaleY = canvas.height / preShotHeight;
-      const pts = rawPts.map(p => ({ x: p.x*scaleX, y: p.y*scaleY }));
-      const minX = Math.min(...pts.map(p=>p.x)), maxX = Math.max(...pts.map(p=>p.x));
-      const minY = Math.min(...pts.map(p=>p.y)), maxY = Math.max(...pts.map(p=>p.y));
-      const w = Math.max(1, Math.round(maxX-minX)), h = Math.max(1, Math.round(maxY-minY));
+      const { canvas, worldPts, minX, minY, outScale } = await composeMapCanvasForPerimeter(perimeter);
+      const w = canvas.width, h = canvas.height;
 
       const out = document.createElement('canvas');
       out.width = w; out.height = h;
       const ctx = out.getContext('2d');
       ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
       ctx.save(); ctx.beginPath();
-      pts.forEach((p,i) => { const x=p.x-minX, y=p.y-minY; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+      worldPts.forEach((p, i) => {
+        const x = (p.x - minX) * outScale, y = (p.y - minY) * outScale;
+        if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
       ctx.closePath(); ctx.clip();
-      ctx.drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
+      ctx.drawImage(canvas, 0, 0);
       ctx.restore();
 
       if(legendCanvas){
@@ -2826,12 +2815,6 @@
       }, 'image/png');
     }catch(err){
       setStatus('warn', 'Não foi possível capturar a imagem: ' + err.message + '. Confira se está com internet e, de preferência, fora do preview do Claude.');
-    }finally{
-      document.body.classList.remove('capturing');
-      if(enteredFullscreenForCapture){
-        const exit = document.exitFullscreen || document.webkitExitFullscreen;
-        if(exit) exit.call(document);
-      }
     }
   }
 
