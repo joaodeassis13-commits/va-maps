@@ -198,6 +198,8 @@
     color:#9B9686; font-size:12.5px; text-align:center; padding:20px;
     border:1.5px dashed #D6D6D6; border-radius:8px;
   }
+  .chart-block{ height:220px; margin-bottom:18px; }
+  .chart-block:last-child{ margin-bottom:0; }
 
   .auth-overlay{
     position:fixed; inset:0; z-index:2000;
@@ -239,6 +241,8 @@
 
   /* Supervisor: view-only — hide every creation/editing control */
   body.role-supervisor #farmCreateBox,
+  body.role-supervisor #retiroCreateBox,
+  body.role-supervisor .retiro-delete,
   body.role-supervisor #section-supervisors,
   body.role-supervisor #perimeterCreateBox,
   body.role-supervisor .farm-delete,
@@ -248,6 +252,10 @@
   body.role-supervisor #mapDefFormSection,
   body.role-supervisor .mapdef-edit,
   body.role-supervisor .mapdef-delete,
+  body.role-supervisor #newChartDefBtn,
+  body.role-supervisor #chartDefFormSection,
+  body.role-supervisor .chartdef-edit,
+  body.role-supervisor .chartdef-delete,
   body.role-supervisor #saveForageSampleBtn,
   body.role-supervisor #estimateForageBtn{
     display: none !important;
@@ -378,6 +386,18 @@
   .rr-mini-label{ font-size:10px; color:var(--text-muted); flex-shrink:0; }
   .range-row .rr-transparent{ width:16px; height:16px; flex-shrink:0; cursor:pointer; accent-color: var(--accent); }
   .range-row .rr-cat-name{ flex:1; font-size:12.5px; word-break:break-word; }
+
+  .color-field{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; }
+  .color-field .fx-opacity, .color-field .fx-nodata-opacity{
+    background: var(--bg); border:1px solid var(--border); color: var(--text);
+    border-radius: var(--radius); padding:4px 5px; font-size:11px; width:60px; flex-shrink:0;
+  }
+  .color-palette{ display:flex; flex-wrap:wrap; gap:3px; flex-basis:100%; margin-top:2px; }
+  .color-swatch-btn{
+    width:16px; height:16px; border-radius:3px; padding:0; flex-shrink:0;
+    border:1px solid rgba(255,255,255,0.35); cursor:pointer;
+  }
+  .color-swatch-btn:hover{ outline:2px solid var(--accent); outline-offset:1px; }
   .range-row .rr-remove{
     background:none; border:none; color: var(--text-muted); font-size:16px;
     cursor:pointer; width:20px; flex-shrink:0; line-height:1;
@@ -583,6 +603,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           Geração de Mapas
         </button>
+        <button type="button" class="nav-item" data-nav="graficos">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="13" y="8" width="3" height="10"/><rect x="19" y="5" width="3" height="13"/></svg>
+          Geração de gráficos
+        </button>
         <button type="button" class="nav-item" data-nav="pastagens">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.5-7-10a7 7 0 0 1 14 0c0 5.5-7 10-7 10z"/><path d="M12 11v6"/></svg>
           Manejo de pastagens
@@ -646,11 +670,29 @@
               <div id="farmCreateBox">
                 <label class="field-label" style="margin-top:12px;">Cadastrar nova fazenda</label>
                 <input type="text" id="newFarmName" placeholder="Nome da fazenda">
-                <label class="file-btn" style="margin-top:6px;">Selecionar KML da fazenda
-                  <input type="file" id="newFarmKml" accept=".kml" hidden>
-                </label>
-                <div class="field-status" id="newFarmKmlStatus">Nenhum arquivo selecionado.</div>
                 <button class="primary-btn" id="registerFarmBtn">Cadastrar fazenda</button>
+              </div>
+            </div>
+            <div class="section" id="section-retiros" style="flex:1 1 100%;">
+              <div class="section-head"><h2>Retiros</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">Cada retiro pertence a uma fazenda e a um departamento, e tem seu próprio KML — a importação agora é feita retiro por retiro, em vez da fazenda toda de uma vez.</div>
+              <label class="field-label">Fazenda</label>
+              <select id="retiroFarmSelect"><option value="">Selecione…</option></select>
+              <label class="field-label" style="margin-top:10px;">Retiros dessa fazenda</label>
+              <div id="retirosList" class="field-status">Selecione uma fazenda acima.</div>
+              <div id="retiroCreateBox" style="margin-top:12px;">
+                <label class="field-label">Cadastrar novo retiro</label>
+                <input type="text" id="newRetiroName" placeholder="Nome do retiro">
+                <label class="field-label" style="margin-top:8px;">Departamento</label>
+                <select id="newRetiroDepartamento">
+                  <option value="pecuaria">Pecuária</option>
+                  <option value="agricultura">Agricultura</option>
+                </select>
+                <label class="file-btn" style="margin-top:8px;">Selecionar KML do retiro
+                  <input type="file" id="newRetiroKml" accept=".kml" hidden>
+                </label>
+                <div class="field-status" id="newRetiroKmlStatus">Nenhum arquivo selecionado.</div>
+                <button class="primary-btn" id="registerRetiroBtn">Cadastrar retiro</button>
               </div>
             </div>
             <div class="section" id="section-supervisors" style="flex:1 1 100%;">
@@ -689,7 +731,8 @@
               </select>
               <label class="field-label">Nome do mapa</label>
               <input type="text" id="mapDefName" placeholder="ex.: Cobertura de pastagem">
-              <label class="field-label" style="margin-top:14px;">Variáveis</label>
+              <label class="field-label" style="margin-top:14px;">Variáveis (opcional)</label>
+              <div class="field-status" style="margin-bottom:6px;">Não precisa configurar nada aqui — pode salvar o mapa só com Grupo e Nome. Assim que uma planilha for enviada em "Upload de dados", cada coluna vira uma variável automaticamente, com faixas de cor já sugeridas pelo sistema a partir dos próprios dados. Use este campo só se quiser definir as faixas de alguma variável manualmente, com antecedência.</div>
               <div id="mapDefVariablesList" style="display:flex; flex-wrap:wrap; gap:14px;"></div>
               <button type="button" class="ghost-btn" id="addVariableBtn">+ Adicionar variável</button>
               <div style="display:flex; gap:8px; margin-top:14px; align-items:center;">
@@ -697,6 +740,44 @@
                 <button type="button" class="mini-btn" id="cancelMapDefBtn">Cancelar</button>
               </div>
               <div class="field-status" id="mapDefFormStatus"></div>
+            </div>
+          </div>
+
+          <div id="panel-graficos" style="display:none;">
+            <div class="section">
+              <div class="section-head"><h2>Gráficos cadastrados</h2></div>
+              <div id="chartDefinitionsList" class="field-status">Carregando…</div>
+              <button class="primary-btn" id="newChartDefBtn">+ Novo gráfico</button>
+            </div>
+
+            <div class="section" id="chartDefFormSection" style="display:none; flex:1 1 100%;">
+              <div class="section-head"><h2 id="chartDefFormTitle">Novo gráfico</h2></div>
+              <label class="field-label">Mapa</label>
+              <select id="chartDefMapSelect"><option value="">Selecione…</option></select>
+              <label class="field-label">Tipo de gráfico</label>
+              <select id="chartDefTypeSelect">
+                <option value="coluna">Coluna</option>
+                <option value="barra">Barra</option>
+                <option value="rosca">Rosca</option>
+                <option value="linha">Linha</option>
+              </select>
+              <label class="field-label">Variável principal</label>
+              <select id="chartDefPrimaryVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
+              <label class="field-label">Variável resposta</label>
+              <select id="chartDefResponseVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
+              <label class="field-label">Cálculo</label>
+              <select id="chartDefCalcSelect">
+                <option value="soma">Soma</option>
+                <option value="media">Média</option>
+                <option value="contagem">Contagem</option>
+                <option value="porcentagem">Porcentagem</option>
+              </select>
+              <div class="field-status" style="margin-top:6px;">"Variável principal" define os grupos do gráfico (ex.: categoria de solo); "Variável resposta" é o valor calculado para cada grupo. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada grupo.</div>
+              <div style="display:flex; gap:8px; margin-top:14px; align-items:center;">
+                <button class="primary-btn" id="saveChartDefBtn" style="margin-top:0; width:auto; padding:10px 18px;">Salvar gráfico</button>
+                <button type="button" class="mini-btn" id="cancelChartDefBtn">Cancelar</button>
+              </div>
+              <div class="field-status" id="chartDefFormStatus"></div>
             </div>
           </div>
 
@@ -728,6 +809,20 @@
               <div class="field-group">
                 <label class="field-label">Mapa</label>
                 <select id="mapaSelect"><option value="">Selecione…</option></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Departamento</label>
+                <div class="multi-select" id="departamentoMultiSelect">
+                  <button type="button" class="multi-select-trigger" id="departamentoTrigger">Todos</button>
+                  <div class="multi-select-panel" id="departamentoPanel" style="display:none;"></div>
+                </div>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Retiro</label>
+                <div class="multi-select" id="retiroMultiSelect">
+                  <button type="button" class="multi-select-trigger" id="retiroTrigger">Todos</button>
+                  <div class="multi-select-panel" id="retiroPanel" style="display:none;"></div>
+                </div>
               </div>
               <div class="field-group">
                 <label class="field-label">Variável principal</label>
@@ -837,7 +932,7 @@
           </div>
 
           <div class="charts-panel" id="chartsPanel">
-            <div class="charts-placeholder">Espaço reservado para gráficos<br>(em breve)</div>
+            <div class="charts-placeholder">Nenhum mapa mostrado ainda.</div>
           </div>
         </div>
       </div>
@@ -847,6 +942,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -906,6 +1002,7 @@
   // ---------- state ----------
   let placemarkLayers = [];      // every polygon from every loaded farm, tagged with .farmName
   let farms = [];                // [{id, name, kml_features}]
+  let retiros = [];              // [{id, farm_id, name, departamento, kml_features}]
   let featureGroup = null;
 
   const CATEGORY_LABELS = {
@@ -977,14 +1074,30 @@
     maxZoom: 19, crossOrigin: true
   });
 
+  const WhiteBackgroundLayer = L.GridLayer.extend({
+    createTile: function(coords, done){
+      const tile = document.createElement('canvas');
+      const size = this.getTileSize();
+      tile.width = size.x; tile.height = size.y;
+      const ctx = tile.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size.x, size.y);
+      setTimeout(() => done(null, tile), 0);
+      return tile;
+    }
+  });
+  const whiteBackground = new WhiteBackgroundLayer({ attribution: '', maxZoom: 19 });
+  whiteBackground.isWhiteBackground = true;
+
   satellite.addTo(map);
   labels.addTo(map);
   let currentBaseLayer = satellite;
   L.control.layers(
-    { 'Satélite': satellite },
+    { 'Satélite': satellite, 'Fundo branco': whiteBackground },
     { 'Rótulos e limites': labels },
     { position: 'topright' }
   ).addTo(map);
+  map.on('baselayerchange', (e) => { currentBaseLayer = e.layer; });
 
   // Satellite imagery date (Esri World Imagery Wayback) — lets the user pick
   // whichever capture date looks clearest (least cloud) for the area.
@@ -1090,7 +1203,7 @@
     categoryFilterBodyEl.innerHTML = categoryFilterEntries.map(en => {
       const borderPx = Math.max(1, Math.min(en.borderWidth || 0, 3));
       const border = (en.borderWidth > 0) ? (borderPx + 'px solid ' + (en.borderColor || en.color)) : 'none';
-      const swatchStyle = 'background:' + (en.transparent ? 'transparent' : en.color) + ';border:' + border + ';width:10px;height:10px;border-radius:2px;flex-shrink:0;';
+      const swatchStyle = 'background:' + en.color + ';opacity:' + getOpacityFraction(en, 0.85) + ';border:' + border + ';width:10px;height:10px;border-radius:2px;flex-shrink:0;';
       const checked = categoryFilterState.get(en.key) !== false;
       return '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);padding:2px 0;cursor:pointer;">' +
         '<input type="checkbox" class="cat-filter-check" data-key="' + en.key + '"' + (checked ? ' checked' : '') + '>' +
@@ -1100,10 +1213,20 @@
 
   function updateLayerVisibility(){
     const farmSelected = document.getElementById('farmFilter').value;
+    const selectedDeps = getSelectedDepartamentos();
+    const selectedRetiroIds = getSelectedRetiroIds();
+    const selectedRetiroKeys = new Set(selectedRetiroIds.map(id => {
+      const r = retiros.find(rr => String(rr.id) === id);
+      if(!r) return null;
+      const farm = farms.find(f => f.id === r.farm_id);
+      return (farm ? farm.name : '') + '|||' + r.name;
+    }).filter(Boolean));
     placemarkLayers.forEach(l => {
       const farmOk = !farmSelected || l.farmName === farmSelected;
       const catOk = !l._paintGroup || categoryFilterState.get(l._paintGroup) !== false;
-      const shouldShow = farmOk && catOk;
+      const depOk = selectedDeps.length === 0 || selectedDeps.includes(l.departamento);
+      const retiroOk = selectedRetiroIds.length === 0 || selectedRetiroKeys.has(l.farmName + '|||' + l.retiroName);
+      const shouldShow = farmOk && catOk && depOk && retiroOk;
       const isShown = featureGroup.hasLayer(l);
       if(shouldShow && !isShown) featureGroup.addLayer(l);
       if(!shouldShow && isShown) featureGroup.removeLayer(l);
@@ -1309,7 +1432,7 @@
   document.getElementById('sentinelDateInput').addEventListener('change', (e) => { if(e.target.value) ndviSentinel.setParams({ time: sentinelTimeRange(e.target.value) }); });
 
   // ---------- side-nav + sub-tabs ----------
-  const PAGE_TITLES = Object.assign({ fazendas: 'Fazendas', geracao: 'Geração de Mapas' }, CATEGORY_LABELS);
+  const PAGE_TITLES = Object.assign({ fazendas: 'Fazendas', geracao: 'Geração de Mapas', graficos: 'Geração de gráficos' }, CATEGORY_LABELS);
   let currentNav = 'fazendas';
   let currentSubtab = 'upload';
   let controlPanelVisible = true;
@@ -1317,8 +1440,9 @@
   function updateControlPanelDisplay(){
     const isFarmsPage = currentNav === 'fazendas';
     const isGeracaoPage = currentNav === 'geracao';
+    const isGraficosPage = currentNav === 'graficos';
     const cp = document.getElementById('controlPanel');
-    cp.style.display = (isFarmsPage || isGeracaoPage || controlPanelVisible) ? '' : 'none';
+    cp.style.display = (isFarmsPage || isGeracaoPage || isGraficosPage || controlPanelVisible) ? '' : 'none';
     document.getElementById('togglePanelBtn').textContent = controlPanelVisible ? 'Ocultar campos' : 'Mostrar campos';
   }
   document.getElementById('togglePanelBtn').addEventListener('click', () => {
@@ -1333,9 +1457,10 @@
 
     const isFarmsPage = currentNav === 'fazendas';
     const isGeracaoPage = currentNav === 'geracao';
-    const isCategoryPage = !isFarmsPage && !isGeracaoPage;
+    const isGraficosPage = currentNav === 'graficos';
+    const isCategoryPage = !isFarmsPage && !isGeracaoPage && !isGraficosPage;
     const isPastagens = currentCategory === 'pastagens';
-    document.body.classList.toggle('nav-nomap', isFarmsPage || isGeracaoPage);
+    document.body.classList.toggle('nav-nomap', isFarmsPage || isGeracaoPage || isGraficosPage);
     document.body.classList.toggle('subtab-upload', isCategoryPage && currentSubtab === 'upload');
     document.getElementById('subTabs').style.display = isCategoryPage ? 'flex' : 'none';
     document.getElementById('forragemTabBtn').style.display = (isCategoryPage && isPastagens) ? 'inline-block' : 'none';
@@ -1345,8 +1470,8 @@
     document.querySelectorAll('.sub-tab[data-subtab]').forEach(b => b.classList.toggle('active', b.dataset.subtab === currentSubtab));
     updateControlPanelDisplay();
 
-    ['fazendas','geracao','upload','mapa','capturar','forragem'].forEach(key => {
-      const show = isFarmsPage ? key === 'fazendas' : isGeracaoPage ? key === 'geracao' : key === currentSubtab;
+    ['fazendas','geracao','graficos','upload','mapa','capturar','forragem'].forEach(key => {
+      const show = isFarmsPage ? key === 'fazendas' : isGeracaoPage ? key === 'geracao' : isGraficosPage ? key === 'graficos' : key === currentSubtab;
       document.getElementById('panel-' + key).style.display = show ? 'flex' : 'none';
     });
   }
@@ -1364,6 +1489,7 @@
     categoryFilterEntries = [];
     categoryFilterState = new Map();
     renderCategoryFilterBody();
+    clearChartsPanel();
     document.getElementById('mapaStatus').textContent = '';
   }
 
@@ -1408,8 +1534,8 @@
     btn.addEventListener('click', async () => {
       const previousNav = currentNav;
       currentNav = btn.dataset.nav;
-      const wasOnCategory = previousNav !== 'fazendas' && previousNav !== 'geracao';
-      const goingToCategory = currentNav !== 'fazendas' && currentNav !== 'geracao';
+      const wasOnCategory = previousNav !== 'fazendas' && previousNav !== 'geracao' && previousNav !== 'graficos';
+      const goingToCategory = currentNav !== 'fazendas' && currentNav !== 'geracao' && currentNav !== 'graficos';
 
       if(wasOnCategory) categoryMapState[currentCategory] = captureCurrentMapSelection();
 
@@ -1425,6 +1551,7 @@
         if(categoryChanged) await restoreCategoryMapState(currentCategory);
         if(currentSubtab === 'upload') loadUploadsList();
       }
+      if(currentNav === 'graficos') populateChartDefMapSelect();
       setTimeout(() => map.invalidateSize(), 50);
     });
   });
@@ -1530,22 +1657,39 @@
     const containedCount = others.filter(o => ringContainsPoint(candidate.ring, o.centroid)).length;
     return (containedCount / others.length >= 0.8) ? candidate.feature : null;
   }
-  const BOUNDARY_STYLE = { color: '#5A6B63', weight: 2, fill: false };
+  const BOUNDARY_STYLE = { color: '#5A6B63', weight: 2, fill: false, interactive: false };
 
-  function addFarmLayersToMap(farmName, features){
+  function addFeatureGroupToMap(farmName, features, retiroName, departamento){
     const boundaryFeature = detectBoundaryFeature(features);
     features.forEach(f => {
       const isBoundary = f === boundaryFeature;
       const layer = L.polygon(f.parts, isBoundary ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45 });
       layer.featureName = f.name;
       layer.farmName = farmName;
+      layer.retiroName = retiroName || null;
+      layer.departamento = departamento || null;
       layer.isBoundaryPolygon = isBoundary;
-      layer.bindTooltip(f.name, { sticky: true });
-      layer.on('mouseover', function(){ this.setStyle({ weight: 3 }); this.bringToFront(); });
-      layer.on('mouseout', function(){ this.setStyle(isBoundary ? BOUNDARY_STYLE : { weight: 1 }); });
+      if(!isBoundary){
+        layer.bindTooltip(f.name, { sticky: true });
+        layer.on('mouseover', function(){ this.setStyle({ weight: 3 }); this.bringToFront(); });
+        layer.on('mouseout', function(){ this.setStyle({ weight: 1 }); });
+      }
       layer.addTo(featureGroup);
       placemarkLayers.push(layer);
     });
+  }
+  // A farm's talhões can come from its old, direct KML (legacy, before
+  // retiros existed) and/or from each of its retiros — boundary-polygon
+  // detection runs separately per group, since a retiro's own outline
+  // shouldn't be compared against a different retiro's talhões.
+  function addFarmLayersToMap(farmName, legacyFeatures){
+    if(legacyFeatures && legacyFeatures.length > 0) addFeatureGroupToMap(farmName, legacyFeatures, null, null);
+    const farm = farms.find(f => f.name === farmName);
+    if(farm){
+      retiros.filter(r => r.farm_id === farm.id).forEach(r => {
+        if(r.kml_features && r.kml_features.length > 0) addFeatureGroupToMap(farmName, r.kml_features, r.name, r.departamento);
+      });
+    }
   }
   function removeFarmLayersFromMap(farmName){
     const toRemove = placemarkLayers.filter(l => l.farmName === farmName);
@@ -1557,13 +1701,15 @@
     const container = document.getElementById('farmsList');
     if(farms.length === 0){ container.innerHTML = 'Nenhuma fazenda cadastrada ainda.'; }
     else {
-      container.innerHTML = farms.map(f => (
-        '<div class="saved-item" data-id="' + f.id + '">' +
+      container.innerHTML = farms.map(f => {
+        const retiroCount = retiros.filter(r => r.farm_id === f.id).reduce((sum, r) => sum + (r.kml_features ? r.kml_features.length : 0), 0);
+        const total = (f.kml_features ? f.kml_features.length : 0) + retiroCount;
+        return '<div class="saved-item" data-id="' + f.id + '">' +
           '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(f.name) + '</div>' +
-          '<div class="saved-item-date">' + f.kml_features.length + ' talhão(ões)</div></div>' +
+          '<div class="saved-item-date">' + total + ' talhão(ões)</div></div>' +
           '<div class="saved-item-actions"><button type="button" class="mini-btn danger farm-delete" title="Excluir fazenda e seus dados">×</button></div>' +
-        '</div>'
-      )).join('');
+        '</div>';
+      }).join('');
     }
     const filterSel = document.getElementById('farmFilter');
     const prevFilter = filterSel.value;
@@ -1662,21 +1808,33 @@
       const { data, error } = await sb.from('farms').select('*').order('name');
       if(error) throw error;
       farms = data || [];
+      const { data: retirosData, error: retirosErr } = await sb.from('retiros').select('*').order('name');
+      if(retirosErr) throw retirosErr;
+      retiros = retirosData || [];
       if(featureGroup) featureGroup.clearLayers();
       placemarkLayers = [];
       farms.forEach(f => addFarmLayersToMap(f.name, f.kml_features));
       renderFarmsList();
+      populateRetiroFarmSelect();
+      renderDepartamentoOptions();
+      renderRetiroOptions();
       if(placemarkLayers.length > 0) map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
       idbSet('farms', farms);
+      idbSet('retiros', retiros);
       return true;
     }catch(err){
-      const cached = await idbGet('farms');
-      if(cached){
-        farms = cached;
+      const cachedFarms = await idbGet('farms');
+      const cachedRetiros = await idbGet('retiros');
+      if(cachedFarms){
+        farms = cachedFarms;
+        retiros = cachedRetiros || [];
         if(featureGroup) featureGroup.clearLayers();
         placemarkLayers = [];
         farms.forEach(f => addFarmLayersToMap(f.name, f.kml_features));
         renderFarmsList();
+        populateRetiroFarmSelect();
+      renderDepartamentoOptions();
+      renderRetiroOptions();
         if(placemarkLayers.length > 0) map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
         setStatus('warn', 'Sem conexão — mostrando fazendas salvas localmente (podem estar desatualizadas).');
         return true;
@@ -1688,36 +1846,19 @@
 
   document.getElementById('registerFarmBtn').addEventListener('click', async () => {
     const name = document.getElementById('newFarmName').value.trim();
-    const fileInput = document.getElementById('newFarmKml');
-    const file = fileInput.files[0];
     if(!name){ setStatus('warn', 'Dê um nome para a fazenda.'); return; }
     if(farms.some(f => normalize(f.name) === normalize(name))){ setStatus('warn', 'Já existe uma fazenda cadastrada com esse nome.'); return; }
-    if(!file){ setStatus('warn', 'Selecione o arquivo KML da fazenda.'); return; }
     try{
-      const text = await file.text();
-      const { features, skipped } = parseKML(text);
-      if(features.length === 0){ setStatus('warn', 'Nenhum polígono encontrado nesse KML.'); return; }
-      const { data, error } = await sb.from('farms').insert({ name, kml_features: features }).select().single();
+      const { data, error } = await sb.from('farms').insert({ name, kml_features: [] }).select().single();
       if(error) throw error;
       farms.push(data);
       farms.sort((a,b) => a.name.localeCompare(b.name));
-      addFarmLayersToMap(data.name, data.kml_features);
       renderFarmsList();
-      map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
       document.getElementById('newFarmName').value = '';
-      fileInput.value = '';
-      document.getElementById('newFarmKmlStatus').textContent = 'Nenhum arquivo selecionado.';
-      let msg = 'Fazenda "' + data.name + '" cadastrada com ' + features.length + ' talhão(ões).';
-      if(skipped > 0) msg += ' ' + skipped + ' elemento(s) sem polígono foram ignorados.';
-      setStatus('ok', msg);
+      setStatus('ok', 'Fazenda "' + data.name + '" cadastrada. Agora cadastre um retiro para importar o KML dela.');
     }catch(err){
       setStatus('warn', 'Não foi possível cadastrar a fazenda: ' + err.message);
     }
-  });
-
-  document.getElementById('newFarmKml').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    document.getElementById('newFarmKmlStatus').textContent = file ? file.name : 'Nenhum arquivo selecionado.';
   });
 
   document.getElementById('farmsList').addEventListener('click', async (e) => {
@@ -1731,10 +1872,93 @@
       if(error) throw error;
       removeFarmLayersFromMap(farm.name);
       farms = farms.filter(f => String(f.id) !== id);
+      retiros = retiros.filter(r => r.farm_id !== farm.id);
       renderFarmsList();
+      populateRetiroFarmSelect();
+      renderDepartamentoOptions();
+      renderRetiroOptions();
       setStatus('ok', 'Fazenda "' + farm.name + '" e seus dados foram excluídos.');
     }catch(err){
       setStatus('warn', 'Não foi possível excluir: ' + err.message);
+    }
+  });
+
+  // ---------- retiros ----------
+  function populateRetiroFarmSelect(){
+    const sel = document.getElementById('retiroFarmSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>' + farms.map(f => '<option value="' + f.id + '">' + escapeHtml(f.name) + '</option>').join('');
+    if(farms.some(f => String(f.id) === prev)) sel.value = prev;
+    renderRetirosList();
+  }
+  function renderRetirosList(){
+    const container = document.getElementById('retirosList');
+    const farmId = document.getElementById('retiroFarmSelect').value;
+    if(!farmId){ container.innerHTML = 'Selecione uma fazenda acima.'; return; }
+    const list = retiros.filter(r => String(r.farm_id) === farmId);
+    if(list.length === 0){ container.innerHTML = 'Nenhum retiro cadastrado ainda para essa fazenda.'; return; }
+    container.innerHTML = list.map(r => (
+      '<div class="saved-item" data-id="' + r.id + '">' +
+        '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(r.name) + '</div>' +
+        '<div class="saved-item-date">' + (r.departamento === 'agricultura' ? 'Agricultura' : 'Pecuária') + ' · ' + (r.kml_features ? r.kml_features.length : 0) + ' talhão(ões)</div></div>' +
+        '<div class="saved-item-actions"><button type="button" class="mini-btn danger retiro-delete" title="Excluir retiro e seus dados">×</button></div>' +
+      '</div>'
+    )).join('');
+  }
+  document.getElementById('retiroFarmSelect').addEventListener('change', renderRetirosList);
+  document.getElementById('newRetiroKml').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    document.getElementById('newRetiroKmlStatus').textContent = file ? file.name : 'Nenhum arquivo selecionado.';
+  });
+  document.getElementById('registerRetiroBtn').addEventListener('click', async () => {
+    const farmId = document.getElementById('retiroFarmSelect').value;
+    const farm = farms.find(f => String(f.id) === farmId);
+    const name = document.getElementById('newRetiroName').value.trim();
+    const departamento = document.getElementById('newRetiroDepartamento').value;
+    const fileInput = document.getElementById('newRetiroKml');
+    const file = fileInput.files[0];
+    if(!farm){ setStatus('warn', 'Escolha a fazenda do retiro.'); return; }
+    if(!name){ setStatus('warn', 'Dê um nome para o retiro.'); return; }
+    if(retiros.some(r => r.farm_id === farm.id && normalize(r.name) === normalize(name))){ setStatus('warn', 'Já existe um retiro com esse nome nessa fazenda.'); return; }
+    if(!file){ setStatus('warn', 'Selecione o arquivo KML do retiro.'); return; }
+    try{
+      const text = await file.text();
+      const { features, skipped } = parseKML(text);
+      if(features.length === 0){ setStatus('warn', 'Nenhum polígono encontrado nesse KML.'); return; }
+      const { data, error } = await sb.from('retiros').insert({ farm_id: farm.id, name, departamento, kml_features: features }).select().single();
+      if(error) throw error;
+      retiros.push(data);
+      addFeatureGroupToMap(farm.name, data.kml_features, data.name, data.departamento);
+      renderRetirosList();
+      map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
+      document.getElementById('newRetiroName').value = '';
+      fileInput.value = '';
+      document.getElementById('newRetiroKmlStatus').textContent = 'Nenhum arquivo selecionado.';
+      let msg = 'Retiro "' + data.name + '" cadastrado com ' + features.length + ' talhão(ões).';
+      if(skipped > 0) msg += ' ' + skipped + ' elemento(s) sem polígono foram ignorados.';
+      setStatus('ok', msg);
+    }catch(err){
+      setStatus('warn', 'Não foi possível cadastrar o retiro: ' + err.message);
+    }
+  });
+  document.getElementById('retirosList').addEventListener('click', async (e) => {
+    if(!e.target.classList.contains('retiro-delete')) return;
+    const item = e.target.closest('.saved-item');
+    const id = item.dataset.id;
+    const retiro = retiros.find(r => String(r.id) === id);
+    if(!retiro) return;
+    try{
+      const { error } = await sb.from('retiros').delete().eq('id', id);
+      if(error) throw error;
+      const farm = farms.find(f => f.id === retiro.farm_id);
+      placemarkLayers.filter(l => l.retiroName === retiro.name && (!farm || l.farmName === farm.name)).forEach(l => featureGroup.removeLayer(l));
+      placemarkLayers = placemarkLayers.filter(l => !(l.retiroName === retiro.name && (!farm || l.farmName === farm.name)));
+      retiros = retiros.filter(r => String(r.id) !== id);
+      renderRetirosList();
+      renderFarmsList();
+      setStatus('ok', 'Retiro "' + retiro.name + '" e seus dados foram excluídos.');
+    }catch(err){
+      setStatus('warn', 'Não foi possível excluir o retiro: ' + err.message);
     }
   });
 
@@ -1748,17 +1972,27 @@
     }
   }
 
+  function getOpacityFraction(row, fallback){
+    if(row && Number.isFinite(row.opacityPercent)) return Math.max(0, Math.min(100, row.opacityPercent)) / 100;
+    if(row && row.transparent === true) return 0; // legacy rows saved before percentage support
+    if(row && row.transparent === false) return fallback;
+    return fallback;
+  }
   function matchedLayerStyle(row){
     const borderWidth = Number.isFinite(row.borderWidth) ? row.borderWidth : 1;
     const borderColor = row.borderColor || '#12181A';
     const style = borderWidth > 0 ? { stroke: true, color: borderColor, weight: borderWidth, dashArray: null } : { stroke: false };
-    if(row.transparent){ style.fill = true; style.fillOpacity = 0; } else { style.fill = true; style.fillColor = row.color; style.fillOpacity = 0.85; }
+    style.fill = true;
+    style.fillColor = row.color;
+    style.fillOpacity = getOpacityFraction(row, 0.85);
     return style;
   }
   function noDataStyleGeneric(nd){
     if(!nd || !nd.enabled) return { stroke: false, fill: false };
     const style = (Number.isFinite(nd.borderWidth) && nd.borderWidth > 0) ? { stroke: true, color: nd.borderColor, weight: nd.borderWidth, dashArray: '4,3' } : { stroke: false };
-    if(nd.transparent){ style.fill = true; style.fillOpacity = 0; } else { style.fill = true; style.fillColor = nd.color; style.fillOpacity = 0.3; }
+    style.fill = true;
+    style.fillColor = nd.color;
+    style.fillOpacity = getOpacityFraction(nd, 0.3);
     return style;
   }
   function bindPopupGeneric(layer, primaryVarName, secondaryVarNames, rowValues, rowDate){
@@ -1784,14 +2018,14 @@
     entries.forEach(en => {
       const borderPx = Math.max(1, Math.min(en.borderWidth || 0, 3));
       const border = (Number.isFinite(en.borderWidth) && en.borderWidth > 0) ? (borderPx + 'px solid ' + en.borderColor) : 'none';
-      const swatchStyle = 'background:' + (en.transparent ? 'transparent' : en.color) + ';border:' + border + ';';
+      const swatchStyle = 'background:' + en.color + ';opacity:' + getOpacityFraction(en, 0.85) + ';border:' + border + ';';
       html += '<div class="legend-row"><span class="swatch" style="' + swatchStyle + '"></span>' + escapeHtml(en.label) + '</div>';
     });
     if(outOfRangeCount > 0) html += '<div class="legend-row"><span class="swatch" style="background:' + OUT_OF_RANGE_COLOR + '"></span>Fora das faixas definidas</div>';
     if(unmatchedCount > 0 && noData && noData.enabled){
       const ndBorderPx = Math.max(1, Math.min(noData.borderWidth || 0, 3));
       const ndBorder = (Number.isFinite(noData.borderWidth) && noData.borderWidth > 0) ? (ndBorderPx + 'px dashed ' + noData.borderColor) : 'none';
-      const ndStyle = 'background:' + (noData.transparent ? 'transparent' : noData.color) + ';border:' + ndBorder + ';';
+      const ndStyle = 'background:' + noData.color + ';opacity:' + getOpacityFraction(noData, 0.3) + ';border:' + ndBorder + ';';
       html += '<div class="legend-row"><span class="swatch" style="' + ndStyle + '"></span>Sem dado</div>';
     }
     const legend = document.getElementById('legend');
@@ -1815,19 +2049,44 @@
   document.getElementById('resetBtn').addEventListener('click', () => location.reload());
 
   // ================= GERAÇÃO DE MAPAS (definições: grupo, nome, variáveis, faixas) =================
-  function newIntervalRow(){ return { min:'', max:'', color:'#8BA888', label:'', transparent:false, borderColor:'#12181A', borderWidth:1 }; }
-  function newCategoryRow(){ return { value:'', color:'#8BA888', transparent:false, borderColor:'#12181A', borderWidth:1 }; }
-  function newNoData(){ return { enabled:true, color:'#5A6B63', transparent:false, borderColor:'#5A6B63', borderWidth:1 }; }
+  const COLOR_PALETTE = [
+    { name: 'Verde escuro', hex: '#1B5E20' }, { name: 'Verde claro', hex: '#8BC34A' },
+    { name: 'Vermelho', hex: '#E53935' }, { name: 'Azul escuro', hex: '#1565C0' },
+    { name: 'Azul claro', hex: '#64B5F6' }, { name: 'Laranja', hex: '#FB8C00' },
+    { name: 'Amarelo', hex: '#FDD835' }, { name: 'Rosa', hex: '#EC407A' },
+    { name: 'Roxo', hex: '#8E24AA' }, { name: 'Preto', hex: '#000000' }, { name: 'Branco', hex: '#FFFFFF' }
+  ];
+  const OPACITY_LEVELS = [0, 10, 25, 50, 75, 90, 100];
+  function paletteHtml(targetClass){
+    return '<div class="color-palette">' + COLOR_PALETTE.map(c =>
+      '<button type="button" class="color-swatch-btn ' + targetClass + '" data-hex="' + c.hex + '" title="' + c.name + '" style="background:' + c.hex + ';"></button>'
+    ).join('') + '</div>';
+  }
+  function opacitySelectHtml(cls, value){
+    const current = Number.isFinite(value) ? value : 85;
+    return '<select class="' + cls + '">' + OPACITY_LEVELS.map(p =>
+      '<option value="' + p + '"' + (p === current ? ' selected' : '') + '>' + p + '%</option>'
+    ).join('') + '</select>';
+  }
+
+  function newIntervalRow(){ return { min:'', max:'', color:'#8BA888', label:'', opacityPercent:85, borderColor:'#12181A', borderWidth:1 }; }
+  function newCategoryRow(){ return { value:'', color:'#8BA888', opacityPercent:85, borderColor:'#12181A', borderWidth:1 }; }
+  function newNoData(){ return { enabled:true, color:'#5A6B63', opacityPercent:30, borderColor:'#5A6B63', borderWidth:1 }; }
   function newVariable(){ return { name:'', mode:'numeric', intervalRows:[newIntervalRow()], categoryRows:[], noData:newNoData() }; }
 
   function colorRowHtml(row){
-    return '<span class="rr-mini-label">Preench.</span>' +
-      '<input type="color" class="fx-color" value="' + row.color + '">' +
-      '<label class="rr-transp-label"><input type="checkbox" class="fx-transparent"' + (row.transparent ? ' checked' : '') + '> T</label>' +
-      '<span class="rr-sep"></span>' +
-      '<span class="rr-mini-label">Contorno</span>' +
-      '<input type="color" class="fx-border-color" value="' + (row.borderColor || '#12181A') + '">' +
-      '<input type="number" class="fx-border-width" value="' + (Number.isFinite(row.borderWidth) ? row.borderWidth : 1) + '" min="0" max="10" step="0.5">';
+    return '<div class="color-field">' +
+        '<span class="rr-mini-label">Preench.</span>' +
+        '<input type="color" class="fx-color" value="' + row.color + '">' +
+        opacitySelectHtml('fx-opacity', row.opacityPercent) +
+        paletteHtml('fx-color-swatch') +
+      '</div>' +
+      '<div class="color-field">' +
+        '<span class="rr-mini-label">Contorno</span>' +
+        '<input type="color" class="fx-border-color" value="' + (row.borderColor || '#12181A') + '">' +
+        '<input type="number" class="fx-border-width" value="' + (Number.isFinite(row.borderWidth) ? row.borderWidth : 1) + '" min="0" max="10" step="0.5">' +
+        paletteHtml('fx-border-color-swatch') +
+      '</div>';
   }
 
   function renderFaixaEditor(container, varDef){
@@ -1841,7 +2100,7 @@
               '<input type="text" class="fx-label" placeholder="Rótulo" value="' + escapeHtml(row.label || '') + '">' +
               '<button type="button" class="rr-remove fx-remove" title="Remover">×</button>' +
             '</div>' +
-            '<div class="range-row">' + colorRowHtml(row) + '</div>' +
+            colorRowHtml(row) +
           '</div>'
         )).join('')
       : varDef.categoryRows.map((row,i) => (
@@ -1850,7 +2109,7 @@
               '<input type="text" class="fx-cat-name" placeholder="Nome da categoria" value="' + escapeHtml(row.value || '') + '" style="flex:1;">' +
               '<button type="button" class="rr-remove fx-remove" title="Remover">×</button>' +
             '</div>' +
-            '<div class="range-row">' + colorRowHtml(row) + '</div>' +
+            colorRowHtml(row) +
           '</div>'
         )).join('');
 
@@ -1860,14 +2119,17 @@
         (nd.enabled ? '<button type="button" class="rr-remove fx-nodata-remove" title="Desativar">×</button>' : '') +
       '</div>' +
       (nd.enabled ? (
-        '<div class="range-row">' +
+        '<div class="color-field">' +
           '<span class="rr-mini-label">Preench.</span>' +
           '<input type="color" class="fx-nodata-color" value="' + nd.color + '">' +
-          '<label class="rr-transp-label"><input type="checkbox" class="fx-nodata-transparent"' + (nd.transparent ? ' checked' : '') + '> T</label>' +
-          '<span class="rr-sep"></span>' +
+          opacitySelectHtml('fx-nodata-opacity', nd.opacityPercent) +
+          paletteHtml('fx-nodata-color-swatch') +
+        '</div>' +
+        '<div class="color-field">' +
           '<span class="rr-mini-label">Contorno</span>' +
           '<input type="color" class="fx-nodata-border-color" value="' + nd.borderColor + '">' +
           '<input type="number" class="fx-nodata-border-width" value="' + nd.borderWidth + '" min="0" max="10" step="0.5">' +
+          paletteHtml('fx-nodata-border-color-swatch') +
         '</div>'
       ) : '') +
       '</div>' +
@@ -1887,11 +2149,22 @@
 
   function wireFaixaEditor(container, varDef){
     container.addEventListener('change', (e) => {
-      if(!e.target.classList.contains('fx-mode-select')) return;
-      varDef.mode = e.target.value;
-      if(varDef.mode === 'numeric' && varDef.intervalRows.length === 0) varDef.intervalRows.push(newIntervalRow());
-      if(varDef.mode === 'categorical' && varDef.categoryRows.length === 0) varDef.categoryRows.push(newCategoryRow());
-      renderFaixaEditor(container, varDef);
+      if(e.target.classList.contains('fx-mode-select')){
+        varDef.mode = e.target.value;
+        if(varDef.mode === 'numeric' && varDef.intervalRows.length === 0) varDef.intervalRows.push(newIntervalRow());
+        if(varDef.mode === 'categorical' && varDef.categoryRows.length === 0) varDef.categoryRows.push(newCategoryRow());
+        renderFaixaEditor(container, varDef);
+        return;
+      }
+      if(e.target.classList.contains('fx-opacity') || e.target.classList.contains('fx-nodata-opacity')){
+        const isNoData = e.target.classList.contains('fx-nodata-opacity');
+        const target = isNoData ? varDef.noData : (() => {
+          const rowEl = e.target.closest('.range-group');
+          const idx = Number(rowEl.dataset.index);
+          return varDef.mode === 'numeric' ? varDef.intervalRows[idx] : varDef.categoryRows[idx];
+        })();
+        if(target) target.opacityPercent = Number(e.target.value);
+      }
     });
     container.addEventListener('input', (e) => {
       const rowEl = e.target.closest('.range-group');
@@ -1904,17 +2177,30 @@
         else if(e.target.classList.contains('fx-label')) row.label = e.target.value;
         else if(e.target.classList.contains('fx-cat-name')) row.value = e.target.value;
         else if(e.target.classList.contains('fx-color')) row.color = e.target.value;
-        else if(e.target.classList.contains('fx-transparent')) row.transparent = e.target.checked;
         else if(e.target.classList.contains('fx-border-color')) row.borderColor = e.target.value;
         else if(e.target.classList.contains('fx-border-width')) row.borderWidth = parseFloat(e.target.value);
         return;
       }
       if(e.target.classList.contains('fx-nodata-color')) varDef.noData.color = e.target.value;
-      else if(e.target.classList.contains('fx-nodata-transparent')) varDef.noData.transparent = e.target.checked;
       else if(e.target.classList.contains('fx-nodata-border-color')) varDef.noData.borderColor = e.target.value;
       else if(e.target.classList.contains('fx-nodata-border-width')) varDef.noData.borderWidth = parseFloat(e.target.value);
     });
     container.addEventListener('click', (e) => {
+      if(e.target.classList.contains('color-swatch-btn')){
+        const hex = e.target.dataset.hex;
+        const rowEl = e.target.closest('.range-group');
+        const isNoData = rowEl && rowEl.classList.contains('no-data-group');
+        const target = isNoData ? varDef.noData : (rowEl ? (varDef.mode === 'numeric' ? varDef.intervalRows[Number(rowEl.dataset.index)] : varDef.categoryRows[Number(rowEl.dataset.index)]) : null);
+        if(!target) return;
+        const field = e.target.classList.contains('fx-border-color-swatch') || e.target.classList.contains('fx-nodata-border-color-swatch') ? 'borderColor' : 'color';
+        target[field] = hex;
+        const inputSel = isNoData
+          ? (field === 'borderColor' ? '.fx-nodata-border-color' : '.fx-nodata-color')
+          : (field === 'borderColor' ? '.fx-border-color' : '.fx-color');
+        const input = rowEl.querySelector(inputSel);
+        if(input) input.value = hex;
+        return;
+      }
       if(e.target.classList.contains('fx-remove')){
         const idx = Number(e.target.closest('.range-group').dataset.index);
         if(varDef.mode === 'numeric') varDef.intervalRows.splice(idx,1); else varDef.categoryRows.splice(idx,1);
@@ -1966,7 +2252,7 @@
     renderMapDefForm();
   });
   document.getElementById('newMapDefBtn').addEventListener('click', () => {
-    currentMapDef = { category: currentCategory, name: '', variables: [newVariable()] };
+    currentMapDef = { category: currentCategory, name: '', variables: [] };
     document.getElementById('mapDefFormTitle').textContent = 'Novo mapa';
     document.getElementById('mapDefFormSection').style.display = 'block';
     renderMapDefForm();
@@ -1980,7 +2266,6 @@
     currentMapDef.name = document.getElementById('mapDefName').value.trim();
     const statusEl = document.getElementById('mapDefFormStatus');
     if(!currentMapDef.name){ statusEl.textContent = 'Dê um nome ao mapa.'; return; }
-    if(currentMapDef.variables.length === 0){ statusEl.textContent = 'Adicione pelo menos uma variável.'; return; }
     for(const v of currentMapDef.variables){
       if(!v.name.trim()){ statusEl.textContent = 'Toda variável precisa de um nome (igual à coluna na planilha).'; return; }
     }
@@ -2055,7 +2340,204 @@
     }
   });
 
-  // ================= UPLOAD DE DADOS (cumulativo, por categoria) =================
+  // ================= GERAÇÃO DE GRÁFICOS =================
+  let chartDefinitions = [];
+  let currentChartDef = null;
+  let activeChartInstances = [];
+
+  async function loadChartDefinitions(){
+    try{
+      const { data, error } = await sb.from('chart_definitions').select('*').order('created_at');
+      if(error) throw error;
+      chartDefinitions = data || [];
+      renderChartDefinitionsList();
+      return true;
+    }catch(err){
+      document.getElementById('chartDefinitionsList').innerHTML = 'Erro: ' + escapeHtml(err.message);
+      return false;
+    }
+  }
+  function renderChartDefinitionsList(){
+    const el = document.getElementById('chartDefinitionsList');
+    if(chartDefinitions.length === 0){ el.innerHTML = 'Nenhum gráfico cadastrado ainda.'; return; }
+    const CHART_TYPE_LABELS = { coluna:'Coluna', barra:'Barra', rosca:'Rosca', linha:'Linha' };
+    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'Porcentagem' };
+    el.innerHTML = chartDefinitions.map(c => {
+      const def = mapDefinitions.find(m => String(m.id) === String(c.map_definition_id));
+      const mapLabel = def ? def.name : '(mapa removido)';
+      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + c.response_variable) : '') + ' por ' + c.primary_variable;
+      return '<div class="saved-item" data-id="' + c.id + '">' +
+        '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
+        '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
+        '<div class="saved-item-actions">' +
+          '<button type="button" class="mini-btn chartdef-edit">Editar</button>' +
+          '<button type="button" class="mini-btn danger chartdef-delete">×</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+  document.getElementById('chartDefinitionsList').addEventListener('click', async (e) => {
+    const item = e.target.closest('.saved-item'); if(!item) return;
+    const id = item.dataset.id;
+    const def = chartDefinitions.find(c => String(c.id) === id);
+    if(!def) return;
+    if(e.target.classList.contains('chartdef-edit')){
+      currentChartDef = Object.assign({}, def);
+      document.getElementById('chartDefFormTitle').textContent = 'Editar gráfico';
+      document.getElementById('chartDefFormSection').style.display = 'block';
+      renderChartDefForm();
+    }
+    if(e.target.classList.contains('chartdef-delete')){
+      try{
+        const { error } = await sb.from('chart_definitions').delete().eq('id', id);
+        if(error) throw error;
+        await loadChartDefinitions();
+      }catch(err){ setStatus('warn', 'Não foi possível excluir: ' + err.message); }
+    }
+  });
+
+  function populateChartDefMapSelect(){
+    const sel = document.getElementById('chartDefMapSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>' + mapDefinitions.map(m =>
+      '<option value="' + m.id + '">' + escapeHtml(CATEGORY_LABELS[m.category] || m.category) + ' — ' + escapeHtml(m.name) + '</option>'
+    ).join('');
+    if(mapDefinitions.some(m => String(m.id) === prev)) sel.value = prev;
+  }
+  function populateChartDefVariableSelects(){
+    const mapId = document.getElementById('chartDefMapSelect').value;
+    const def = mapDefinitions.find(m => String(m.id) === mapId);
+    const options = def ? def.variables.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('') : '';
+    document.getElementById('chartDefPrimaryVarSelect').innerHTML = def ? ('<option value="">Selecione…</option>' + options) : '<option value="">Selecione o mapa primeiro…</option>';
+    document.getElementById('chartDefResponseVarSelect').innerHTML = def ? ('<option value="">—</option>' + options) : '<option value="">Selecione o mapa primeiro…</option>';
+  }
+  document.getElementById('chartDefMapSelect').addEventListener('change', populateChartDefVariableSelects);
+
+  function renderChartDefForm(){
+    document.getElementById('chartDefMapSelect').value = currentChartDef.map_definition_id || '';
+    populateChartDefVariableSelects();
+    document.getElementById('chartDefTypeSelect').value = currentChartDef.chart_type || 'coluna';
+    document.getElementById('chartDefPrimaryVarSelect').value = currentChartDef.primary_variable || '';
+    document.getElementById('chartDefResponseVarSelect').value = currentChartDef.response_variable || '';
+    document.getElementById('chartDefCalcSelect').value = currentChartDef.calculation || 'soma';
+  }
+  document.getElementById('newChartDefBtn').addEventListener('click', () => {
+    currentChartDef = { map_definition_id: '', chart_type: 'coluna', primary_variable: '', response_variable: '', calculation: 'soma' };
+    document.getElementById('chartDefFormTitle').textContent = 'Novo gráfico';
+    document.getElementById('chartDefFormSection').style.display = 'block';
+    renderChartDefForm();
+  });
+  document.getElementById('cancelChartDefBtn').addEventListener('click', () => {
+    currentChartDef = null;
+    document.getElementById('chartDefFormSection').style.display = 'none';
+  });
+  document.getElementById('saveChartDefBtn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('chartDefFormStatus');
+    const mapId = document.getElementById('chartDefMapSelect').value;
+    const chartType = document.getElementById('chartDefTypeSelect').value;
+    const primaryVar = document.getElementById('chartDefPrimaryVarSelect').value;
+    const responseVar = document.getElementById('chartDefResponseVarSelect').value;
+    const calculation = document.getElementById('chartDefCalcSelect').value;
+    if(!mapId){ statusEl.textContent = 'Escolha o mapa.'; return; }
+    if(!primaryVar){ statusEl.textContent = 'Escolha a variável principal.'; return; }
+    if(calculation !== 'contagem' && !responseVar){ statusEl.textContent = 'Escolha a variável resposta (só "Contagem" dispensa isso).'; return; }
+    try{
+      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: primaryVar, response_variable: calculation === 'contagem' ? null : responseVar, calculation };
+      let result;
+      if(currentChartDef.id) result = await sb.from('chart_definitions').update(payload).eq('id', currentChartDef.id).select().single();
+      else result = await sb.from('chart_definitions').insert(payload).select().single();
+      if(result.error) throw result.error;
+      statusEl.textContent = '';
+      document.getElementById('chartDefFormSection').style.display = 'none';
+      currentChartDef = null;
+      await loadChartDefinitions();
+      setStatus('ok', 'Gráfico salvo.');
+    }catch(err){
+      statusEl.textContent = 'Erro ao salvar: ' + err.message;
+    }
+  });
+
+  // Computes {labels, values} for a chart definition from the same
+  // per-talhão data already fetched to paint the map.
+  function computeChartData(chartDef, latestByTalhao){
+    const groups = new Map();
+    latestByTalhao.forEach(row => {
+      const groupRaw = row.values[chartDef.primary_variable];
+      if(groupRaw === undefined || groupRaw === null || String(groupRaw).trim() === '') return;
+      const key = String(groupRaw).trim();
+      if(!groups.has(key)) groups.set(key, []);
+      if(chartDef.calculation === 'contagem'){
+        groups.get(key).push(1);
+      } else {
+        const respRaw = row.values[chartDef.response_variable];
+        const v = parseNumber(respRaw);
+        if(Number.isFinite(v)) groups.get(key).push(v);
+      }
+    });
+    const labels = Array.from(groups.keys());
+    let values;
+    if(chartDef.calculation === 'soma') values = labels.map(k => groups.get(k).reduce((a,b) => a+b, 0));
+    else if(chartDef.calculation === 'media') values = labels.map(k => { const arr = groups.get(k); return arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0; });
+    else if(chartDef.calculation === 'contagem') values = labels.map(k => groups.get(k).length);
+    else { // porcentagem
+      const sums = labels.map(k => groups.get(k).reduce((a,b) => a+b, 0));
+      const total = sums.reduce((a,b) => a+b, 0);
+      values = sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
+    }
+    return { labels, values };
+  }
+  const CHART_COLOR_SET = ['#166336','#8BA888','#C98F2B','#6E8FB0','#B5566B','#8A6BB5','#9AA53C','#C1584B','#3C8A9A','#D9A441'];
+  function renderChartsForMap(mapDefId, latestByTalhao){
+    const container = document.getElementById('chartsPanel');
+    activeChartInstances.forEach(ch => { try{ ch.destroy(); }catch(e){} });
+    activeChartInstances = [];
+    const defs = chartDefinitions.filter(c => String(c.map_definition_id) === String(mapDefId));
+    if(typeof Chart === 'undefined'){
+      container.innerHTML = '<div class="charts-placeholder">A biblioteca de gráficos não carregou (é preciso estar com internet).</div>';
+      return;
+    }
+    if(defs.length === 0){
+      container.innerHTML = '<div class="charts-placeholder">Nenhum gráfico cadastrado para este mapa.<br>Crie um em "Geração de gráficos".</div>';
+      return;
+    }
+    container.innerHTML = defs.map((c, i) => '<div class="chart-block"><canvas id="mapChartCanvas_' + i + '"></canvas></div>').join('');
+    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ' };
+    defs.forEach((c, i) => {
+      const { labels, values } = computeChartData(c, latestByTalhao);
+      const ctx = document.getElementById('mapChartCanvas_' + i).getContext('2d');
+      const chartJsType = { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
+      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + c.response_variable) : '') + ' por ' + c.primary_variable;
+      const isDonut = c.chart_type === 'rosca';
+      const chart = new Chart(ctx, {
+        type: chartJsType,
+        data: {
+          labels,
+          datasets: [{
+            label,
+            data: values,
+            backgroundColor: isDonut ? labels.map((_, idx) => CHART_COLOR_SET[idx % CHART_COLOR_SET.length]) : CHART_COLOR_SET[0],
+            borderColor: CHART_COLOR_SET[0],
+            fill: c.chart_type === 'linha' ? false : true
+          }]
+        },
+        options: {
+          indexAxis: c.chart_type === 'barra' ? 'y' : 'x',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: isDonut, labels: { boxWidth: 10, font: { size: 10 } } }, title: { display: true, text: label, font: { size: 11 } } },
+          scales: isDonut ? {} : { y: { beginAtZero: true } }
+        }
+      });
+      activeChartInstances.push(chart);
+    });
+  }
+  function clearChartsPanel(){
+    activeChartInstances.forEach(ch => { try{ ch.destroy(); }catch(e){} });
+    activeChartInstances = [];
+    document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Nenhum mapa mostrado ainda.</div>';
+  }
+
+
   let categoryUploadWorkbook = null, categoryUploadRows = [], categoryUploadFileName = '';
   document.getElementById('categoryUploadInput').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if(!file) return;
@@ -2210,7 +2692,7 @@
   function autoCategoryRowsFor(colName){
     return distinctColumnValues(colName).map((val, i) => ({
       value: val, color: AUTO_CATEGORICAL_PALETTE[i % AUTO_CATEGORICAL_PALETTE.length],
-      transparent: false, borderColor: '#12181A', borderWidth: 1
+      opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
     }));
   }
   async function syncMapDefinitionsWithUploadedColumns(valueKeys){
@@ -2383,9 +2865,80 @@
     const panel = document.getElementById('secondaryVarPanel');
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
   });
+
+  // ---------- Departamento / Retiro filters (multi-select, same pattern) ----------
+  const DEPARTAMENTO_OPTIONS = [{ value: 'agricultura', label: 'Agricultura' }, { value: 'pecuaria', label: 'Pecuária' }];
+  function getSelectedDepartamentos(){
+    return Array.from(document.querySelectorAll('#departamentoPanel .departamento-checkbox:checked')).map(cb => cb.value);
+  }
+  function updateDepartamentoTriggerLabel(){
+    const sel = getSelectedDepartamentos();
+    const trigger = document.getElementById('departamentoTrigger');
+    if(sel.length === 0) trigger.textContent = 'Todos';
+    else if(sel.length === 1) trigger.textContent = DEPARTAMENTO_OPTIONS.find(d => d.value === sel[0]).label;
+    else trigger.textContent = sel.length + ' selecionados';
+  }
+  function renderDepartamentoOptions(){
+    const panel = document.getElementById('departamentoPanel');
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    panel.innerHTML = DEPARTAMENTO_OPTIONS.map(d =>
+      '<label><input type="checkbox" class="departamento-checkbox" value="' + d.value + '"' + (prevChecked.has(d.value) ? ' checked' : '') + '> ' + d.label + '</label>'
+    ).join('');
+    updateDepartamentoTriggerLabel();
+  }
+  document.getElementById('departamentoPanel').addEventListener('change', (e) => {
+    if(!e.target.classList.contains('departamento-checkbox')) return;
+    updateDepartamentoTriggerLabel();
+    renderRetiroOptions();
+    updateLayerVisibility();
+  });
+  document.getElementById('departamentoTrigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById('departamentoPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+
+  function getSelectedRetiroIds(){
+    return Array.from(document.querySelectorAll('#retiroPanel .retiro-checkbox:checked')).map(cb => cb.value);
+  }
+  function updateRetiroTriggerLabel(){
+    const sel = getSelectedRetiroIds();
+    const trigger = document.getElementById('retiroTrigger');
+    if(sel.length === 0) trigger.textContent = 'Todos';
+    else if(sel.length === 1){ const r = retiros.find(rr => String(rr.id) === sel[0]); trigger.textContent = r ? r.name : '1 selecionado'; }
+    else trigger.textContent = sel.length + ' selecionados';
+  }
+  function renderRetiroOptions(){
+    const panel = document.getElementById('retiroPanel');
+    const selectedDeps = getSelectedDepartamentos();
+    const relevant = retiros.filter(r => selectedDeps.length === 0 || selectedDeps.includes(r.departamento));
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    if(relevant.length === 0){ panel.innerHTML = '<div class="multi-select-empty">Nenhum retiro encontrado.</div>'; updateRetiroTriggerLabel(); return; }
+    panel.innerHTML = relevant.map(r => {
+      const farm = farms.find(f => f.id === r.farm_id);
+      const label = (farm ? farm.name + ' — ' : '') + r.name;
+      return '<label><input type="checkbox" class="retiro-checkbox" value="' + r.id + '"' + (prevChecked.has(String(r.id)) ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>';
+    }).join('');
+    updateRetiroTriggerLabel();
+  }
+  document.getElementById('retiroPanel').addEventListener('change', (e) => {
+    if(!e.target.classList.contains('retiro-checkbox')) return;
+    updateRetiroTriggerLabel();
+    updateLayerVisibility();
+  });
+  document.getElementById('retiroTrigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById('retiroPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+
   document.addEventListener('click', (e) => {
     const wrap = document.getElementById('secondaryVarMultiSelect');
     if(wrap && !wrap.contains(e.target)) document.getElementById('secondaryVarPanel').style.display = 'none';
+    const depWrap = document.getElementById('departamentoMultiSelect');
+    if(depWrap && !depWrap.contains(e.target)) document.getElementById('departamentoPanel').style.display = 'none';
+    const retWrap = document.getElementById('retiroMultiSelect');
+    if(retWrap && !retWrap.contains(e.target)) document.getElementById('retiroPanel').style.display = 'none';
   });
 
   document.getElementById('renderMapaBtn').addEventListener('click', async () => {
@@ -2450,14 +3003,14 @@
               min: step === 0 ? min : Math.round((min + step*i) * 100) / 100,
               max: (i === 2 || step === 0) ? Math.round(max * 100) / 100 : Math.round((min + step*(i+1)) * 100) / 100,
               color: AUTO_CATEGORICAL_PALETTE[i % AUTO_CATEGORICAL_PALETTE.length],
-              label: '', transparent: false, borderColor: '#12181A', borderWidth: 1
+              label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
             }));
           } else {
             varDef.mode = 'categorical';
             varDef.categoryRows = Array.from(new Set(foundValues)).map((val, i) => ({
               value: val,
               color: AUTO_CATEGORICAL_PALETTE[i % AUTO_CATEGORICAL_PALETTE.length],
-              transparent: false, borderColor: '#12181A', borderWidth: 1
+              opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
             }));
           }
           try{ await sb.from('map_definitions').update({ variables: def.variables }).eq('id', def.id); }
@@ -2500,15 +3053,15 @@
         ? validRows.map(r => {
             const rangeStr = formatNumBR(r.min) + ' - ' + formatNumBR(r.max);
             const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
-            return { color: r.color, label, transparent: r.transparent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
+            return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
           })
-        : varDef.categoryRows.map(r => ({ color: r.color, label: r.value, transparent: r.transparent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 }));
+        : varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 }));
 
       renderLegendGeneric(entries, unmatched.length, outOfRangeCount, varDef.name, varDef.noData);
 
       categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
-      if(outOfRangeCount > 0) categoryFilterEntries.push({ key: 'outofrange', label: 'Fora das faixas definidas', color: OUT_OF_RANGE_COLOR, transparent: false, borderWidth: 0 });
-      if(unmatched.length > 0 && varDef.noData && varDef.noData.enabled) categoryFilterEntries.push({ key: 'nodata', label: 'Sem dado', color: varDef.noData.color, transparent: varDef.noData.transparent, borderWidth: varDef.noData.borderWidth, borderColor: varDef.noData.borderColor });
+      if(outOfRangeCount > 0) categoryFilterEntries.push({ key: 'outofrange', label: 'Fora das faixas definidas', color: OUT_OF_RANGE_COLOR, opacityPercent: 100, borderWidth: 0 });
+      if(unmatched.length > 0 && varDef.noData && varDef.noData.enabled) categoryFilterEntries.push({ key: 'nodata', label: 'Sem dado', color: varDef.noData.color, opacityPercent: varDef.noData.opacityPercent, borderWidth: varDef.noData.borderWidth, borderColor: varDef.noData.borderColor });
       categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
       renderCategoryFilterBody();
       updateLayerVisibility();
@@ -2517,6 +3070,8 @@
       if(startDate && endDate) periodLabel = startDate === endDate ? (' em ' + endDate) : (' de ' + startDate + ' a ' + endDate);
       else if(endDate) periodLabel = ' até ' + endDate;
       else if(startDate) periodLabel = ' a partir de ' + startDate;
+      renderChartsForMap(defId, latestByTalhao);
+
       statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
@@ -2734,6 +3289,11 @@
     const rctx = rawCanvas.getContext('2d');
     rctx.fillStyle = '#ffffff'; rctx.fillRect(0, 0, w, h);
 
+    if(tileLayer.isWhiteBackground){
+      // already filled white above — nothing to fetch.
+      return { canvas: rawCanvas, worldPts, minX, minY, outScale, zoom };
+    }
+
     const maxTileIndex = Math.pow(2, zoom) - 1;
     const tileMinX = Math.max(0, Math.floor(minX / tileSize)), tileMaxX = Math.min(maxTileIndex, Math.floor(maxX / tileSize));
     const tileMinY = Math.max(0, Math.floor(minY / tileSize)), tileMaxY = Math.min(maxTileIndex, Math.floor(maxY / tileSize));
@@ -2800,7 +3360,7 @@
     if(viewPreviewTimer){ clearTimeout(viewPreviewTimer); viewPreviewTimer = null; }
     if(viewPreviewLayer){ map.removeLayer(viewPreviewLayer); viewPreviewLayer = null; }
 
-    const canManualComposite = currentBaseLayer && typeof currentBaseLayer.getTileUrl === 'function';
+    const canManualComposite = currentBaseLayer && (currentBaseLayer.isWhiteBackground || typeof currentBaseLayer.getTileUrl === 'function');
     if(!canManualComposite){
       setStatus('warn', 'Essa camada de mapa (Sentinel/WMS) não suporta captura por enquanto — troque para "Satélite" ou "NDVI MODIS" antes de capturar.');
       return;
@@ -3148,6 +3708,7 @@
     const farmsOk = await loadFarmsFromDB();
     const mapDefsOk = await loadMapDefinitions();
     const perimsOk = await loadPerimetersFromDB();
+    await loadChartDefinitions();
     if(currentRole === 'analista') loadFarmAccessList();
     if(farmsOk && mapDefsOk && perimsOk){
       setDbStatus('ok', 'banco conectado');
