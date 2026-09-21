@@ -763,9 +763,12 @@
                 <option value="barra">Barra</option>
                 <option value="rosca">Rosca</option>
                 <option value="linha">Linha</option>
+                <option value="linha_tempo">Linha do tempo</option>
               </select>
-              <label class="field-label">Variável resposta</label>
-              <select id="chartDefResponseVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
+              <div id="chartDefResponseVarGroup">
+                <label class="field-label">Variável resposta</label>
+                <select id="chartDefResponseVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
+              </div>
               <label class="field-label">Cálculo</label>
               <select id="chartDefCalcSelect">
                 <option value="soma">Soma</option>
@@ -773,7 +776,7 @@
                 <option value="contagem">Contagem</option>
                 <option value="porcentagem">Porcentagem</option>
               </select>
-              <div class="field-status" style="margin-top:6px;">O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.</div>
+              <div class="field-status" style="margin-top:6px;" id="chartDefHint">O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.</div>
               <div style="display:flex; gap:8px; margin-top:14px; align-items:center;">
                 <button class="primary-btn" id="saveChartDefBtn" style="margin-top:0; width:auto; padding:10px 18px;">Salvar gráfico</button>
                 <button type="button" class="mini-btn" id="cancelChartDefBtn">Cancelar</button>
@@ -2453,12 +2456,14 @@
   function renderChartDefinitionsList(){
     const el = document.getElementById('chartDefinitionsList');
     if(chartDefinitions.length === 0){ el.innerHTML = 'Nenhum gráfico cadastrado ainda.'; return; }
-    const CHART_TYPE_LABELS = { coluna:'Coluna', barra:'Barra', rosca:'Rosca', linha:'Linha' };
+    const CHART_TYPE_LABELS = { coluna:'Coluna', barra:'Barra', rosca:'Rosca', linha:'Linha', linha_tempo:'Linha do tempo' };
     const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'Porcentagem' };
     el.innerHTML = chartDefinitions.map(c => {
       const def = mapDefinitions.find(m => String(m.id) === String(c.map_definition_id));
       const mapLabel = def ? def.name : '(mapa removido)';
-      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + chartVarLabel(c.response_variable)) : '') + ' por faixa/categoria da variável principal do mapa';
+      const desc = c.chart_type === 'linha_tempo'
+        ? CALC_LABELS[c.calculation] + ' da variável principal do mapa, ao longo das datas do período'
+        : CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + chartVarLabel(c.response_variable)) : '') + ' por faixa/categoria da variável principal do mapa';
       return '<div class="saved-item" data-id="' + c.id + '">' +
         '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
         '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
@@ -2517,12 +2522,22 @@
   }
   document.getElementById('chartDefMapSelect').addEventListener('change', populateChartDefVariableSelects);
 
+  function updateChartDefTypeUI(){
+    const isTimeline = document.getElementById('chartDefTypeSelect').value === 'linha_tempo';
+    document.getElementById('chartDefResponseVarGroup').style.display = isTimeline ? 'none' : 'block';
+    document.getElementById('chartDefHint').textContent = isTimeline
+      ? 'Uma linha do tempo usa a própria variável principal do mapa como valor — o eixo mostra as datas do período selecionado, e o cálculo combina os talhões visíveis em cada data.'
+      : 'O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.';
+  }
+  document.getElementById('chartDefTypeSelect').addEventListener('change', updateChartDefTypeUI);
+
   function renderChartDefForm(){
     document.getElementById('chartDefMapSelect').value = currentChartDef.map_definition_id || '';
     populateChartDefVariableSelects();
     document.getElementById('chartDefTypeSelect').value = currentChartDef.chart_type || 'coluna';
     document.getElementById('chartDefResponseVarSelect').value = currentChartDef.response_variable || '';
     document.getElementById('chartDefCalcSelect').value = currentChartDef.calculation || 'soma';
+    updateChartDefTypeUI();
   }
   document.getElementById('newChartDefBtn').addEventListener('click', () => {
     currentChartDef = { map_definition_id: '', chart_type: 'coluna', response_variable: '', calculation: 'soma' };
@@ -2541,9 +2556,9 @@
     const responseVar = document.getElementById('chartDefResponseVarSelect').value;
     const calculation = document.getElementById('chartDefCalcSelect').value;
     if(!mapId){ statusEl.textContent = 'Escolha o mapa.'; return; }
-    if(calculation !== 'contagem' && !responseVar){ statusEl.textContent = 'Escolha a variável resposta (só "Contagem" dispensa isso).'; return; }
+    if(chartType !== 'linha_tempo' && calculation !== 'contagem' && !responseVar){ statusEl.textContent = 'Escolha a variável resposta (só "Contagem" e "Linha do tempo" dispensam isso).'; return; }
     try{
-      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variable: calculation === 'contagem' ? null : responseVar, calculation };
+      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variable: (chartType === 'linha_tempo' || calculation === 'contagem') ? null : responseVar, calculation };
       let result;
       if(currentChartDef.id) result = await sb.from('chart_definitions').update(payload).eq('id', currentChartDef.id).select().single();
       else result = await sb.from('chart_definitions').insert(payload).select().single();
@@ -2620,7 +2635,43 @@
       opacities: buckets.map(b => getOpacityFraction({ opacityPercent: b.opacityPercent }, 0.85))
     };
   }
-  function renderChartsForMap(mapDefId, varDef, latestByTalhao){
+  // For "Linha do tempo": groups the raw (non-collapsed) rows fetched for the
+  // period by date, aggregating the map's own primary variable per date —
+  // across whichever talhões are currently visible on the map.
+  function computeTimelineChartData(chartDef, varDef, rawRows){
+    const visibleKeys = new Set(
+      placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l)).map(l => {
+        const farm = farms.find(f => f.name === l.farmName);
+        return (farm ? farm.id : '') + '|' + normalize(l.featureName);
+      })
+    );
+    const byDate = new Map();
+    (rawRows || []).forEach(row => {
+      const key = row.farm_id + '|' + normalize(row.talhao_name);
+      if(!visibleKeys.has(key)) return;
+      const raw = row.values[varDef.name];
+      if(raw === undefined || raw === null || String(raw).trim() === '') return;
+      if(chartDef.calculation !== 'contagem'){
+        const v = parseNumber(raw);
+        if(!Number.isFinite(v)) return;
+      }
+      if(!byDate.has(row.sample_date)) byDate.set(row.sample_date, []);
+      byDate.get(row.sample_date).push(chartDef.calculation === 'contagem' ? 1 : parseNumber(raw));
+    });
+    const labels = Array.from(byDate.keys()).sort();
+    let values;
+    if(chartDef.calculation === 'soma') values = labels.map(d => byDate.get(d).reduce((a,b) => a+b, 0));
+    else if(chartDef.calculation === 'media') values = labels.map(d => { const arr = byDate.get(d); return arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0; });
+    else if(chartDef.calculation === 'contagem') values = labels.map(d => byDate.get(d).length);
+    else { // porcentagem — share of the whole period's total that fell on each date
+      const sums = labels.map(d => byDate.get(d).reduce((a,b) => a+b, 0));
+      const total = sums.reduce((a,b) => a+b, 0);
+      values = sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
+    }
+    return { labels: labels.map(d => { const [y,m,dd] = d.split('-'); return dd + '/' + m + '/' + y; }), values };
+  }
+
+  function renderChartsForMap(mapDefId, varDef, latestByTalhao, rawRows){
     const container = document.getElementById('chartsPanel');
     activeChartInstances.forEach(ch => { try{ ch.destroy(); }catch(e){} });
     activeChartInstances = [];
@@ -2636,13 +2687,20 @@
     container.innerHTML = defs.map((c, i) => '<div class="chart-block"><canvas id="mapChartCanvas_' + i + '"></canvas></div>').join('');
     const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ' };
     defs.forEach((c, i) => {
-      const { labels, values, colors, opacities } = computeChartData(c, varDef, latestByTalhao);
+      const isTimeline = c.chart_type === 'linha_tempo';
+      const { labels, values, colors, opacities } = isTimeline
+        ? Object.assign(computeTimelineChartData(c, varDef, rawRows), { colors: null, opacities: null })
+        : computeChartData(c, varDef, latestByTalhao);
       const ctx = document.getElementById('mapChartCanvas_' + i).getContext('2d');
-      const chartJsType = { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
-      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + varDef.name;
+      const chartJsType = isTimeline ? 'line' : { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
+      const label = isTimeline
+        ? CALC_LABELS[c.calculation] + ' ' + varDef.name + ' ao longo do tempo'
+        : CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + varDef.name;
       const isDonut = c.chart_type === 'rosca';
-      // Colors always follow each faixa/categoria's own map color+opacity.
-      const backgroundColors = colors.map((hex, idx) => hexToRgba(hex, opacities[idx]));
+      const lineColor = '#166336';
+      // Colors always follow each faixa/categoria's own map color+opacity — except
+      // a timeline, which is a single series (no per-bucket colors to reuse).
+      const backgroundColors = isTimeline ? hexToRgba(lineColor, 0.15) : colors.map((hex, idx) => hexToRgba(hex, opacities[idx]));
       const chart = new Chart(ctx, {
         type: chartJsType,
         data: {
@@ -2651,9 +2709,10 @@
             label,
             data: values,
             backgroundColor: backgroundColors,
-            borderColor: colors,
-            pointBackgroundColor: colors,
-            fill: c.chart_type === 'linha' ? false : true
+            borderColor: isTimeline ? lineColor : colors,
+            pointBackgroundColor: isTimeline ? lineColor : colors,
+            fill: (isTimeline || c.chart_type === 'linha') ? false : true,
+            tension: isTimeline ? 0.2 : 0
           }]
         },
         options: {
@@ -2664,19 +2723,31 @@
           plugins: {
             legend: { display: isDonut, labels: { boxWidth: 10, font: { size: 10 } } },
             title: { display: true, text: label, font: { size: 11 } },
-            datalabels: {
+            datalabels: isDonut ? {
+              color: '#fff',
+              font: { size: 10.5, weight: 'bold' },
+              anchor: 'center',
+              align: 'center',
+              formatter: (v) => Number.isInteger(v) ? v : v.toFixed(1)
+            } : {
               color: '#232520',
               font: { size: 10.5, weight: 'bold' },
               anchor: 'end',
-              align: c.chart_type === 'barra' ? 'end' : 'end',
+              align: 'end',
               offset: 2,
               formatter: (v) => Number.isInteger(v) ? v : v.toFixed(1)
             }
           },
-          scales: isDonut ? {} : {
-            y: { beginAtZero: true, grid: { display: false } },
-            x: { grid: { display: false } }
-          }
+          scales: isDonut ? {} : (() => {
+            // The value axis's numbers are redundant with the per-bar/point
+            // labels — hide just that axis's ticks, keep the category/date
+            // axis's labels.
+            const valueAxisIsY = c.chart_type !== 'barra';
+            return {
+              y: { beginAtZero: true, grid: { display: false }, ticks: { display: !valueAxisIsY } },
+              x: { grid: { display: false }, ticks: { display: valueAxisIsY } }
+            };
+          })()
         }
       });
       activeChartInstances.push(chart);
@@ -3224,7 +3295,7 @@
       if(startDate && endDate) periodLabel = startDate === endDate ? (' em ' + endDate) : (' de ' + startDate + ' a ' + endDate);
       else if(endDate) periodLabel = ' até ' + endDate;
       else if(startDate) periodLabel = ' a partir de ' + startDate;
-      renderChartsForMap(defId, varDef, latestByTalhao);
+      renderChartsForMap(defId, varDef, latestByTalhao, data);
 
       statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
