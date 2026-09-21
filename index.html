@@ -1573,6 +1573,13 @@
   function normalize(s){
     return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
   }
+  // A farm's talhões can live directly on it (legacy KML) and/or spread
+  // across its retiros — anything matching a talhão by name must check both.
+  function getAllFarmFeatures(farm){
+    const legacy = farm.kml_features || [];
+    const retiroFeatures = retiros.filter(r => r.farm_id === farm.id).flatMap(r => r.kml_features || []);
+    return legacy.concat(retiroFeatures);
+  }
   function parseNumber(v){ return Number(String(v).trim().replace(',', '.')); }
   function formatNumBR(n){ return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
   // A faixa numérica com só o mínimo informado vira "Acima de X"; só o
@@ -1747,11 +1754,18 @@
     if(farms.length === 0){ container.innerHTML = 'Nenhuma fazenda cadastrada ainda.'; }
     else {
       container.innerHTML = farms.map(f => {
-        const retiroCount = retiros.filter(r => r.farm_id === f.id).reduce((sum, r) => sum + (r.kml_features ? r.kml_features.length : 0), 0);
+        const farmRetiros = retiros.filter(r => r.farm_id === f.id);
+        const retiroCount = farmRetiros.reduce((sum, r) => sum + (r.kml_features ? r.kml_features.length : 0), 0);
         const total = (f.kml_features ? f.kml_features.length : 0) + retiroCount;
+        const breakdown = farmRetiros.length > 0
+          ? '<div class="saved-item-date">' + farmRetiros.map(r =>
+              escapeHtml(r.name) + ' (' + (r.departamento === 'agricultura' ? 'Agricultura' : 'Pecuária') + ', ' + (r.kml_features ? r.kml_features.length : 0) + ' talhão(ões))'
+            ).join(' · ') + '</div>'
+          : '';
         return '<div class="saved-item" data-id="' + f.id + '">' +
           '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(f.name) + '</div>' +
-          '<div class="saved-item-date">' + total + ' talhão(ões)</div></div>' +
+          '<div class="saved-item-date">' + total + ' talhão(ões) no total' + (f.kml_features && f.kml_features.length > 0 ? ' (' + f.kml_features.length + ' direto na fazenda)' : '') + '</div>' +
+          breakdown + '</div>' +
           '<div class="saved-item-actions"><button type="button" class="mini-btn danger farm-delete" title="Excluir fazenda e seus dados">×</button></div>' +
         '</div>';
       }).join('');
@@ -1996,6 +2010,7 @@
       retiros.push(data);
       addFeatureGroupToMap(farm.name, data.kml_features, data.name, data.departamento);
       renderRetirosList();
+      renderFarmsList();
       map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
       document.getElementById('newRetiroName').value = '';
       fileInput.value = '';
@@ -2732,7 +2747,7 @@
       if(!farmName || !talhaoName || !dateStr){ fail++; continue; }
       const farm = farms.find(f => normalize(f.name) === normalize(farmName));
       if(!farm){ fail++; failReasons.push(farmName + '/' + talhaoName + ': fazenda não encontrada'); continue; }
-      const talhaoFeature = farm.kml_features.find(f => normalize(f.name) === normalize(talhaoName));
+      const talhaoFeature = getAllFarmFeatures(farm).find(f => normalize(f.name) === normalize(talhaoName));
       if(!talhaoFeature){ fail++; failReasons.push(farmName + '/' + talhaoName + ': talhão não encontrado'); continue; }
 
       const values = {};
@@ -3605,7 +3620,7 @@
       renderForageCalibration();
       return;
     }
-    talhaoSel.innerHTML = farm.kml_features.map(f => '<option value="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</option>').join('');
+    talhaoSel.innerHTML = getAllFarmFeatures(farm).map(f => '<option value="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</option>').join('');
     await loadForageSamples(farm.id);
   });
   async function loadForageSamples(farmId){
@@ -3653,7 +3668,7 @@
     const massVal = document.getElementById('forageMassInput').value;
     if(!farm || !talhaoName || !dateStr){ document.getElementById('forageSampleStatus').textContent = 'Escolha fazenda, talhão e data.'; return; }
     if(!heightVal && !massVal){ document.getElementById('forageSampleStatus').textContent = 'Informe pelo menos altura ou massa.'; return; }
-    const feature = farm.kml_features.find(f => f.name === talhaoName);
+    const feature = getAllFarmFeatures(farm).find(f => f.name === talhaoName);
     if(!feature){ document.getElementById('forageSampleStatus').textContent = 'Talhão não encontrado.'; return; }
     const ring = feature.parts[0][0];
 
@@ -3702,8 +3717,9 @@
     if(!heightFit && !massFit){ statusEl.textContent = 'Ainda não há calibração suficiente (mínimo 3 amostras de altura ou de massa).'; return; }
 
     let ok = 0, fail = 0;
-    for(const feature of farm.kml_features){
-      statusEl.textContent = 'Lendo NDVI de "' + feature.name + '"… (' + (ok + fail + 1) + '/' + farm.kml_features.length + ')';
+    const allFeatures = getAllFarmFeatures(farm);
+    for(const feature of allFeatures){
+      statusEl.textContent = 'Lendo NDVI de "' + feature.name + '"… (' + (ok + fail + 1) + '/' + allFeatures.length + ')';
       try{
         const ring = feature.parts[0][0];
         const ndviValue = await computeTalhaoNDVI(ring, dateStr);
