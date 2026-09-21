@@ -630,7 +630,7 @@
       </nav>
       <div class="active-farm-box">
         <label for="farmFilter">Fazenda ativa</label>
-        <select id="farmFilter"><option value="">Todas as fazendas cadastradas</option></select>
+        <select id="farmFilter"></select>
       </div>
       <div class="sidebar-footer" id="userBox" style="display:none;">
         <div class="user-avatar" id="userAvatar">--</div>
@@ -1772,9 +1772,9 @@
     }
     const filterSel = document.getElementById('farmFilter');
     const prevFilter = filterSel.value;
-    filterSel.innerHTML = '<option value="">Todas as fazendas cadastradas</option>' +
-      farms.map(f => '<option value="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</option>').join('');
+    filterSel.innerHTML = farms.map(f => '<option value="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</option>').join('');
     if(farms.some(f => f.name === prevFilter)) filterSel.value = prevFilter;
+    else if(farms.length > 0) filterSel.value = farms[0].name;
 
     populateForageFarmSelect();
     populateGrantFarmsList();
@@ -1878,7 +1878,7 @@
       populateRetiroFarmSelect();
       renderDepartamentoOptions();
       renderRetiroOptions();
-      if(placemarkLayers.length > 0) map.fitBounds(featureGroup.getBounds(), { padding: [24,24], maxZoom: 17 });
+      applyFarmFilter();
       idbSet('farms', farms);
       idbSet('retiros', retiros);
       return true;
@@ -2043,7 +2043,10 @@
     }
   });
 
-  document.getElementById('farmFilter').addEventListener('change', applyFarmFilter);
+  document.getElementById('farmFilter').addEventListener('change', () => {
+    renderRetiroOptions();
+    applyFarmFilter();
+  });
   function applyFarmFilter(){
     updateLayerVisibility();
     const visible = placemarkLayers.filter(l => featureGroup.hasLayer(l));
@@ -3018,14 +3021,17 @@
   function renderRetiroOptions(){
     const panel = document.getElementById('retiroPanel');
     const selectedDeps = getSelectedDepartamentos();
-    const relevant = retiros.filter(r => selectedDeps.length === 0 || selectedDeps.includes(r.departamento));
+    const activeFarmName = document.getElementById('farmFilter').value;
+    const activeFarm = farms.find(f => f.name === activeFarmName);
+    const relevant = retiros.filter(r =>
+      (!activeFarm || r.farm_id === activeFarm.id) &&
+      (selectedDeps.length === 0 || selectedDeps.includes(r.departamento))
+    );
     const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
-    if(relevant.length === 0){ panel.innerHTML = '<div class="multi-select-empty">Nenhum retiro encontrado.</div>'; updateRetiroTriggerLabel(); return; }
-    panel.innerHTML = relevant.map(r => {
-      const farm = farms.find(f => f.id === r.farm_id);
-      const label = (farm ? farm.name + ' — ' : '') + r.name;
-      return '<label><input type="checkbox" class="retiro-checkbox" value="' + r.id + '"' + (prevChecked.has(String(r.id)) ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>';
-    }).join('');
+    if(relevant.length === 0){ panel.innerHTML = '<div class="multi-select-empty">Nenhum retiro encontrado para a fazenda ativa.</div>'; updateRetiroTriggerLabel(); return; }
+    panel.innerHTML = relevant.map(r =>
+      '<label><input type="checkbox" class="retiro-checkbox" value="' + r.id + '"' + (prevChecked.has(String(r.id)) ? ' checked' : '') + '> ' + escapeHtml(r.name) + '</label>'
+    ).join('');
     updateRetiroTriggerLabel();
   }
   document.getElementById('retiroPanel').addEventListener('change', (e) => {
