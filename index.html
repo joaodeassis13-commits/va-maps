@@ -1892,7 +1892,7 @@
     if(!name){ setStatus('warn', 'Dê um nome para a fazenda.'); return; }
     if(farms.some(f => normalize(f.name) === normalize(name))){ setStatus('warn', 'Já existe uma fazenda cadastrada com esse nome.'); return; }
     try{
-      const { data, error } = await sb.from('farms').insert({ name, kml_features: [] }).select().single();
+      const { data, error } = await sb.from('farms').insert({ name, kml_features: [], owner_id: currentUser.id }).select().single();
       if(error) throw error;
       farms.push(data);
       farms.sort((a,b) => a.name.localeCompare(b.name));
@@ -1911,8 +1911,12 @@
     const farm = farms.find(f => String(f.id) === id);
     if(!farm) return;
     try{
-      const { error } = await sb.from('farms').delete().eq('id', id);
+      const { data: deletedRows, error } = await sb.from('farms').delete().eq('id', id).select();
       if(error) throw error;
+      if(!deletedRows || deletedRows.length === 0){
+        setStatus('warn', 'Não foi possível excluir "' + farm.name + '": o banco não encontrou permissão para apagar (essa fazenda pode não estar corretamente marcada como sua). Me avise se isso continuar acontecendo.');
+        return;
+      }
       removeFarmLayersFromMap(farm.name);
       farms = farms.filter(f => String(f.id) !== id);
       retiros = retiros.filter(r => r.farm_id !== farm.id);
