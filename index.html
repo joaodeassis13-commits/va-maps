@@ -1572,6 +1572,22 @@
   }
   function parseNumber(v){ return Number(String(v).trim().replace(',', '.')); }
   function formatNumBR(n){ return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
+  // A faixa numérica com só o mínimo informado vira "Acima de X"; só o
+  // máximo informado vira "Abaixo de X"; com os dois, o intervalo normal.
+  function intervalRowMatches(r, v){
+    const hasMin = Number.isFinite(r.min), hasMax = Number.isFinite(r.max);
+    if(hasMin && hasMax) return v >= Math.min(r.min, r.max) && v <= Math.max(r.min, r.max);
+    if(hasMin) return v >= r.min;
+    if(hasMax) return v <= r.max;
+    return false;
+  }
+  function formatIntervalRange(r){
+    const hasMin = Number.isFinite(r.min), hasMax = Number.isFinite(r.max);
+    if(hasMin && hasMax) return formatNumBR(r.min) + ' - ' + formatNumBR(r.max);
+    if(hasMin) return 'Acima de ' + formatNumBR(r.min);
+    if(hasMax) return 'Abaixo de ' + formatNumBR(r.max);
+    return '';
+  }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function setStatus(kind, msg){ const box = document.getElementById('statusBox'); box.className = 'status-box ' + kind; box.textContent = msg; }
   function formatDate(iso){ try{ const d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }catch(e){ return ''; } }
@@ -2120,9 +2136,9 @@
       ? varDef.intervalRows.map((row,i) => (
           '<div class="range-group" data-index="' + i + '">' +
             '<div class="range-row">' +
-              '<input type="number" class="fx-min" step="any" value="' + row.min + '">' +
+              '<input type="number" class="fx-min" step="any" placeholder="Mín." value="' + row.min + '">' +
               '<span class="rr-dash">–</span>' +
-              '<input type="number" class="fx-max" step="any" value="' + row.max + '">' +
+              '<input type="number" class="fx-max" step="any" placeholder="Máx." value="' + row.max + '">' +
               '<input type="text" class="fx-label" placeholder="Rótulo" value="' + escapeHtml(row.label || '') + '">' +
               '<button type="button" class="rr-remove fx-remove" title="Remover">×</button>' +
             '</div>' +
@@ -2170,6 +2186,7 @@
       '</div>' +
       '<div class="fx-rows">' + rowsHtml + '</div>' +
       '<button type="button" class="ghost-btn fx-add">' + (varDef.mode === 'numeric' ? '+ Adicionar faixa' : '+ Adicionar categoria') + '</button>' +
+      (varDef.mode === 'numeric' ? '<div class="field-status" style="margin:2px 0 4px;">Deixe "Mín." em branco para "Abaixo de X"; deixe "Máx." em branco para "Acima de X".</div>' : '') +
       noDataHtml;
   }
 
@@ -3035,7 +3052,7 @@
       // where the mode itself was guessed wrong on upload), detect it fresh
       // from the data that was actually fetched and self-correct.
       const hasFaixas = varDef.mode === 'numeric'
-        ? (varDef.intervalRows || []).some(r => Number.isFinite(r.min) && Number.isFinite(r.max))
+        ? (varDef.intervalRows || []).some(r => Number.isFinite(r.min) || Number.isFinite(r.max))
         : (varDef.categoryRows && varDef.categoryRows.length > 0);
       if(!hasFaixas){
         const foundValues = [];
@@ -3069,7 +3086,7 @@
         }
       }
 
-      const validRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) && Number.isFinite(r.max)) : null;
+      const validRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) || Number.isFinite(r.max)) : null;
 
       let matchedCount = 0, outOfRangeCount = 0; const unmatched = [];
       placemarkLayers.forEach(layer => {
@@ -3088,7 +3105,7 @@
         matchedCount++;
         if(varDef.mode === 'numeric'){
           const v = parseNumber(value);
-          const idx = validRows.findIndex(r => v >= Math.min(r.min, r.max) && v <= Math.max(r.min, r.max));
+          const idx = validRows.findIndex(r => intervalRowMatches(r, v));
           if(idx !== -1){ layer.setStyle(matchedLayerStyle(validRows[idx])); layer._paintGroup = 'entry_' + idx; }
           else { outOfRangeCount++; layer.setStyle({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 }); layer._paintGroup = 'outofrange'; }
         } else {
@@ -3102,7 +3119,7 @@
 
       const entries = varDef.mode === 'numeric'
         ? validRows.map(r => {
-            const rangeStr = formatNumBR(r.min) + ' - ' + formatNumBR(r.max);
+            const rangeStr = formatIntervalRange(r);
             const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
             return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
           })
