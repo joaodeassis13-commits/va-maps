@@ -764,8 +764,6 @@
                 <option value="rosca">Rosca</option>
                 <option value="linha">Linha</option>
               </select>
-              <label class="field-label">Variável principal</label>
-              <select id="chartDefPrimaryVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
               <label class="field-label">Variável resposta</label>
               <select id="chartDefResponseVarSelect"><option value="">Selecione o mapa primeiro…</option></select>
               <label class="field-label">Cálculo</label>
@@ -775,7 +773,7 @@
                 <option value="contagem">Contagem</option>
                 <option value="porcentagem">Porcentagem</option>
               </select>
-              <div class="field-status" style="margin-top:6px;">"Variável principal" define os grupos do gráfico (ex.: categoria de solo); "Variável resposta" é o valor calculado para cada grupo. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada grupo.</div>
+              <div class="field-status" style="margin-top:6px;">O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.</div>
               <div style="display:flex; gap:8px; margin-top:14px; align-items:center;">
                 <button class="primary-btn" id="saveChartDefBtn" style="margin-top:0; width:auto; padding:10px 18px;">Salvar gráfico</button>
                 <button type="button" class="mini-btn" id="cancelChartDefBtn">Cancelar</button>
@@ -2062,6 +2060,12 @@
     if(row && row.transparent === false) return fallback;
     return fallback;
   }
+  function hexToRgba(hex, alpha){
+    const h = String(hex || '#8BA888').replace('#','');
+    const full = h.length === 3 ? h.split('').map(c => c+c).join('') : h;
+    const r = parseInt(full.slice(0,2), 16) || 0, g = parseInt(full.slice(2,4), 16) || 0, b = parseInt(full.slice(4,6), 16) || 0;
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + (Number.isFinite(alpha) ? alpha : 1) + ')';
+  }
   function matchedLayerStyle(row){
     const borderWidth = Number.isFinite(row.borderWidth) ? row.borderWidth : 1;
     const borderColor = row.borderColor || '#12181A';
@@ -2450,7 +2454,7 @@
     el.innerHTML = chartDefinitions.map(c => {
       const def = mapDefinitions.find(m => String(m.id) === String(c.map_definition_id));
       const mapLabel = def ? def.name : '(mapa removido)';
-      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + chartVarLabel(c.response_variable)) : '') + ' por ' + chartVarLabel(c.primary_variable);
+      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + chartVarLabel(c.response_variable)) : '') + ' por faixa/categoria da variável principal do mapa';
       return '<div class="saved-item" data-id="' + c.id + '">' +
         '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
         '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
@@ -2505,7 +2509,6 @@
     const def = mapDefinitions.find(m => String(m.id) === mapId);
     const builtinOptions = BUILTIN_CHART_VARIABLES.map(b => '<option value="' + b.value + '">' + b.label + '</option>').join('');
     const options = def ? def.variables.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('') : '';
-    document.getElementById('chartDefPrimaryVarSelect').innerHTML = def ? ('<option value="">Selecione…</option>' + builtinOptions + options) : '<option value="">Selecione o mapa primeiro…</option>';
     document.getElementById('chartDefResponseVarSelect').innerHTML = def ? ('<option value="">—</option>' + builtinOptions + options) : '<option value="">Selecione o mapa primeiro…</option>';
   }
   document.getElementById('chartDefMapSelect').addEventListener('change', populateChartDefVariableSelects);
@@ -2514,12 +2517,11 @@
     document.getElementById('chartDefMapSelect').value = currentChartDef.map_definition_id || '';
     populateChartDefVariableSelects();
     document.getElementById('chartDefTypeSelect').value = currentChartDef.chart_type || 'coluna';
-    document.getElementById('chartDefPrimaryVarSelect').value = currentChartDef.primary_variable || '';
     document.getElementById('chartDefResponseVarSelect').value = currentChartDef.response_variable || '';
     document.getElementById('chartDefCalcSelect').value = currentChartDef.calculation || 'soma';
   }
   document.getElementById('newChartDefBtn').addEventListener('click', () => {
-    currentChartDef = { map_definition_id: '', chart_type: 'coluna', primary_variable: '', response_variable: '', calculation: 'soma' };
+    currentChartDef = { map_definition_id: '', chart_type: 'coluna', response_variable: '', calculation: 'soma' };
     document.getElementById('chartDefFormTitle').textContent = 'Novo gráfico';
     document.getElementById('chartDefFormSection').style.display = 'block';
     renderChartDefForm();
@@ -2532,14 +2534,12 @@
     const statusEl = document.getElementById('chartDefFormStatus');
     const mapId = document.getElementById('chartDefMapSelect').value;
     const chartType = document.getElementById('chartDefTypeSelect').value;
-    const primaryVar = document.getElementById('chartDefPrimaryVarSelect').value;
     const responseVar = document.getElementById('chartDefResponseVarSelect').value;
     const calculation = document.getElementById('chartDefCalcSelect').value;
     if(!mapId){ statusEl.textContent = 'Escolha o mapa.'; return; }
-    if(!primaryVar){ statusEl.textContent = 'Escolha a variável principal.'; return; }
     if(calculation !== 'contagem' && !responseVar){ statusEl.textContent = 'Escolha a variável resposta (só "Contagem" dispensa isso).'; return; }
     try{
-      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: primaryVar, response_variable: calculation === 'contagem' ? null : responseVar, calculation };
+      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variable: calculation === 'contagem' ? null : responseVar, calculation };
       let result;
       if(currentChartDef.id) result = await sb.from('chart_definitions').update(payload).eq('id', currentChartDef.id).select().single();
       else result = await sb.from('chart_definitions').insert(payload).select().single();
@@ -2563,41 +2563,60 @@
     if(fieldKey === '__area_ha') return Number.isFinite(layer.areaHectares) ? layer.areaHectares : null;
     return row ? row.values[fieldKey] : undefined;
   }
-  function computeChartData(chartDef, latestByTalhao){
-    const groups = new Map();
+  function computeChartData(chartDef, varDef, latestByTalhao){
+    // Groups are the map's own faixas/categories for its current primary
+    // variable — same buckets and colors as the map's legend.
+    const buckets = varDef.mode === 'numeric'
+      ? varDef.intervalRows
+          .filter(r => Number.isFinite(r.min) || Number.isFinite(r.max))
+          .map(r => ({
+            label: (r.label && r.label.trim()) ? r.label.trim() : formatIntervalRange(r),
+            color: r.color, opacityPercent: r.opacityPercent,
+            matches: v => intervalRowMatches(r, v)
+          }))
+      : varDef.categoryRows.map(r => ({
+          label: r.value, color: r.color, opacityPercent: r.opacityPercent,
+          matches: v => String(v).trim() === r.value
+        }));
+
+    const rawValues = buckets.map(() => []);
     placemarkLayers.forEach(layer => {
       if(layer.isBoundaryPolygon || !featureGroup.hasLayer(layer)) return;
       const farm = farms.find(f => f.name === layer.farmName);
       const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
       const row = latestByTalhao.get(key);
-
-      const groupRaw = resolveChartFieldValue(chartDef.primary_variable, layer, row);
-      if(groupRaw === undefined || groupRaw === null || String(groupRaw).trim() === '') return;
-      const groupKey = String(groupRaw).trim();
-      if(!groups.has(groupKey)) groups.set(groupKey, []);
+      const primaryRaw = row ? row.values[varDef.name] : undefined;
+      if(primaryRaw === undefined || primaryRaw === null || String(primaryRaw).trim() === '') return;
+      const v = varDef.mode === 'numeric' ? parseNumber(primaryRaw) : String(primaryRaw).trim();
+      const bucketIdx = buckets.findIndex(b => b.matches(v));
+      if(bucketIdx === -1) return;
 
       if(chartDef.calculation === 'contagem'){
-        groups.get(groupKey).push(1);
+        rawValues[bucketIdx].push(1);
       } else {
         const respRaw = resolveChartFieldValue(chartDef.response_variable, layer, row);
-        const v = chartDef.response_variable === '__area_ha' ? respRaw : parseNumber(respRaw);
-        if(Number.isFinite(v)) groups.get(groupKey).push(v);
+        const rv = chartDef.response_variable === '__area_ha' ? respRaw : parseNumber(respRaw);
+        if(Number.isFinite(rv)) rawValues[bucketIdx].push(rv);
       }
     });
-    const labels = Array.from(groups.keys());
+
     let values;
-    if(chartDef.calculation === 'soma') values = labels.map(k => groups.get(k).reduce((a,b) => a+b, 0));
-    else if(chartDef.calculation === 'media') values = labels.map(k => { const arr = groups.get(k); return arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0; });
-    else if(chartDef.calculation === 'contagem') values = labels.map(k => groups.get(k).length);
+    if(chartDef.calculation === 'soma') values = rawValues.map(arr => arr.reduce((a,b) => a+b, 0));
+    else if(chartDef.calculation === 'media') values = rawValues.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0);
+    else if(chartDef.calculation === 'contagem') values = rawValues.map(arr => arr.length);
     else { // porcentagem
-      const sums = labels.map(k => groups.get(k).reduce((a,b) => a+b, 0));
+      const sums = rawValues.map(arr => arr.reduce((a,b) => a+b, 0));
       const total = sums.reduce((a,b) => a+b, 0);
       values = sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
     }
-    return { labels, values };
+    return {
+      labels: buckets.map(b => b.label),
+      values,
+      colors: buckets.map(b => b.color),
+      opacities: buckets.map(b => getOpacityFraction({ opacityPercent: b.opacityPercent }, 0.85))
+    };
   }
-  const CHART_COLOR_SET = ['#166336','#8BA888','#C98F2B','#6E8FB0','#B5566B','#8A6BB5','#9AA53C','#C1584B','#3C8A9A','#D9A441'];
-  function renderChartsForMap(mapDefId, latestByTalhao){
+  function renderChartsForMap(mapDefId, varDef, latestByTalhao){
     const container = document.getElementById('chartsPanel');
     activeChartInstances.forEach(ch => { try{ ch.destroy(); }catch(e){} });
     activeChartInstances = [];
@@ -2613,11 +2632,13 @@
     container.innerHTML = defs.map((c, i) => '<div class="chart-block"><canvas id="mapChartCanvas_' + i + '"></canvas></div>').join('');
     const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ' };
     defs.forEach((c, i) => {
-      const { labels, values } = computeChartData(c, latestByTalhao);
+      const { labels, values, colors, opacities } = computeChartData(c, varDef, latestByTalhao);
       const ctx = document.getElementById('mapChartCanvas_' + i).getContext('2d');
       const chartJsType = { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
-      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + chartVarLabel(c.primary_variable);
+      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + varDef.name;
       const isDonut = c.chart_type === 'rosca';
+      // Colors always follow each faixa/categoria's own map color+opacity.
+      const backgroundColors = colors.map((hex, idx) => hexToRgba(hex, opacities[idx]));
       const chart = new Chart(ctx, {
         type: chartJsType,
         data: {
@@ -2625,8 +2646,9 @@
           datasets: [{
             label,
             data: values,
-            backgroundColor: isDonut ? labels.map((_, idx) => CHART_COLOR_SET[idx % CHART_COLOR_SET.length]) : CHART_COLOR_SET[0],
-            borderColor: CHART_COLOR_SET[0],
+            backgroundColor: backgroundColors,
+            borderColor: colors,
+            pointBackgroundColor: colors,
             fill: c.chart_type === 'linha' ? false : true
           }]
         },
@@ -3183,7 +3205,7 @@
       if(startDate && endDate) periodLabel = startDate === endDate ? (' em ' + endDate) : (' de ' + startDate + ' a ' + endDate);
       else if(endDate) periodLabel = ' até ' + endDate;
       else if(startDate) periodLabel = ' a partir de ' + startDate;
-      renderChartsForMap(defId, latestByTalhao);
+      renderChartsForMap(defId, varDef, latestByTalhao);
 
       statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
