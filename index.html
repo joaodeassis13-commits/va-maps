@@ -1659,6 +1659,31 @@
   }
   const BOUNDARY_STYLE = { color: '#5A6B63', weight: 2, fill: false, interactive: false };
 
+  // Approximate geodesic area (equirectangular projection around the ring's
+  // mean latitude) — accurate enough for farm-scale talhões, without needing
+  // a full geodesy library.
+  function ringAreaHectares(ring){
+    const R = 6378137;
+    const toRad = d => d * Math.PI / 180;
+    const meanLat = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+    const cosLat = Math.cos(toRad(meanLat));
+    const pts = ring.map(([lat, lng]) => ({ x: toRad(lng) * R * cosLat, y: toRad(lat) * R }));
+    let area = 0;
+    for(let i = 0; i < pts.length; i++){
+      const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+      area += p1.x * p2.y - p2.x * p1.y;
+    }
+    return Math.abs(area / 2) / 10000;
+  }
+  function featureAreaHectares(feature){
+    let total = 0;
+    feature.parts.forEach(part => {
+      total += ringAreaHectares(part[0]);
+      for(let i = 1; i < part.length; i++) total -= ringAreaHectares(part[i]);
+    });
+    return total;
+  }
+
   function addFeatureGroupToMap(farmName, features, retiroName, departamento){
     const boundaryFeature = detectBoundaryFeature(features);
     features.forEach(f => {
@@ -1669,6 +1694,7 @@
       layer.retiroName = retiroName || null;
       layer.departamento = departamento || null;
       layer.isBoundaryPolygon = isBoundary;
+      layer.areaHectares = featureAreaHectares(f);
       if(!isBoundary){
         layer.bindTooltip(f.name, { sticky: true });
         layer.on('mouseover', function(){ this.setStyle({ weight: 3 }); this.bringToFront(); });
@@ -2365,7 +2391,7 @@
     el.innerHTML = chartDefinitions.map(c => {
       const def = mapDefinitions.find(m => String(m.id) === String(c.map_definition_id));
       const mapLabel = def ? def.name : '(mapa removido)';
-      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + c.response_variable) : '') + ' por ' + c.primary_variable;
+      const desc = CALC_LABELS[c.calculation] + (c.response_variable ? (' de ' + chartVarLabel(c.response_variable)) : '') + ' por ' + chartVarLabel(c.primary_variable);
       return '<div class="saved-item" data-id="' + c.id + '">' +
         '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
         '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
@@ -2404,12 +2430,24 @@
     ).join('');
     if(mapDefinitions.some(m => String(m.id) === prev)) sel.value = prev;
   }
+  const BUILTIN_CHART_VARIABLES = [
+    { value: '__departamento', label: 'Departamento' },
+    { value: '__retiro', label: 'Retiro' },
+    { value: '__talhao', label: 'Talhões' },
+    { value: '__area_ha', label: 'Área (ha)' }
+  ];
+  function chartVarLabel(key){
+    if(!key) return '';
+    const b = BUILTIN_CHART_VARIABLES.find(x => x.value === key);
+    return b ? b.label : key;
+  }
   function populateChartDefVariableSelects(){
     const mapId = document.getElementById('chartDefMapSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === mapId);
+    const builtinOptions = BUILTIN_CHART_VARIABLES.map(b => '<option value="' + b.value + '">' + b.label + '</option>').join('');
     const options = def ? def.variables.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('') : '';
-    document.getElementById('chartDefPrimaryVarSelect').innerHTML = def ? ('<option value="">Selecione…</option>' + options) : '<option value="">Selecione o mapa primeiro…</option>';
-    document.getElementById('chartDefResponseVarSelect').innerHTML = def ? ('<option value="">—</option>' + options) : '<option value="">Selecione o mapa primeiro…</option>';
+    document.getElementById('chartDefPrimaryVarSelect').innerHTML = def ? ('<option value="">Selecione…</option>' + builtinOptions + options) : '<option value="">Selecione o mapa primeiro…</option>';
+    document.getElementById('chartDefResponseVarSelect').innerHTML = def ? ('<option value="">—</option>' + builtinOptions + options) : '<option value="">Selecione o mapa primeiro…</option>';
   }
   document.getElementById('chartDefMapSelect').addEventListener('change', populateChartDefVariableSelects);
 
@@ -2459,19 +2497,32 @@
 
   // Computes {labels, values} for a chart definition from the same
   // per-talhão data already fetched to paint the map.
+  function resolveChartFieldValue(fieldKey, layer, row){
+    if(fieldKey === '__departamento') return layer.departamento;
+    if(fieldKey === '__retiro') return layer.retiroName;
+    if(fieldKey === '__talhao') return layer.featureName;
+    if(fieldKey === '__area_ha') return Number.isFinite(layer.areaHectares) ? layer.areaHectares : null;
+    return row ? row.values[fieldKey] : undefined;
+  }
   function computeChartData(chartDef, latestByTalhao){
     const groups = new Map();
-    latestByTalhao.forEach(row => {
-      const groupRaw = row.values[chartDef.primary_variable];
+    placemarkLayers.forEach(layer => {
+      if(layer.isBoundaryPolygon || !featureGroup.hasLayer(layer)) return;
+      const farm = farms.find(f => f.name === layer.farmName);
+      const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
+      const row = latestByTalhao.get(key);
+
+      const groupRaw = resolveChartFieldValue(chartDef.primary_variable, layer, row);
       if(groupRaw === undefined || groupRaw === null || String(groupRaw).trim() === '') return;
-      const key = String(groupRaw).trim();
-      if(!groups.has(key)) groups.set(key, []);
+      const groupKey = String(groupRaw).trim();
+      if(!groups.has(groupKey)) groups.set(groupKey, []);
+
       if(chartDef.calculation === 'contagem'){
-        groups.get(key).push(1);
+        groups.get(groupKey).push(1);
       } else {
-        const respRaw = row.values[chartDef.response_variable];
-        const v = parseNumber(respRaw);
-        if(Number.isFinite(v)) groups.get(key).push(v);
+        const respRaw = resolveChartFieldValue(chartDef.response_variable, layer, row);
+        const v = chartDef.response_variable === '__area_ha' ? respRaw : parseNumber(respRaw);
+        if(Number.isFinite(v)) groups.get(groupKey).push(v);
       }
     });
     const labels = Array.from(groups.keys());
@@ -2506,7 +2557,7 @@
       const { labels, values } = computeChartData(c, latestByTalhao);
       const ctx = document.getElementById('mapChartCanvas_' + i).getContext('2d');
       const chartJsType = { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
-      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + c.response_variable) : '') + ' por ' + c.primary_variable;
+      const label = CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + chartVarLabel(c.primary_variable);
       const isDonut = c.chart_type === 'rosca';
       const chart = new Chart(ctx, {
         type: chartJsType,
