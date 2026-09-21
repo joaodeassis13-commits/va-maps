@@ -878,7 +878,6 @@
               <div class="field-status" style="margin-bottom:6px;">O NDVI só fica disponível aqui, nessa aba — nas demais o mapa mostra sempre o satélite.</div>
               <div class="shape-row">
                 <button type="button" class="mini-btn ndvi-layer-btn active" data-layer="satellite">Satélite</button>
-                <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndvi">NDVI MODIS</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndviSentinel">NDVI Sentinel-2</button>
               </div>
             </div>
@@ -1051,16 +1050,6 @@
     { attribution: '', maxZoom: 19, crossOrigin: true }
   );
 
-  function defaultNdviDate(){
-    const d = new Date(); d.setDate(d.getDate() - 12); return d.toISOString().slice(0, 10);
-  }
-  function ndviUrlForDate(dateStr){
-    return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/' + dateStr + '/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png';
-  }
-  const ndvi = L.tileLayer(ndviUrlForDate(defaultNdviDate()), {
-    attribution: 'NASA EOSDIS GIBS — MODIS/Terra NDVI (8-Day)',
-    maxNativeZoom: 9, maxZoom: 19, crossOrigin: true
-  });
 
   const SENTINEL_INSTANCE_ID = '5875e516-feb4-4ecc-b0b6-382955082335';
   const SENTINEL_NDVI_LAYER = 'NDVI';
@@ -1274,12 +1263,12 @@
   let ndviDateControlDiv = null;
   function updateNdviDateControlVisibility(){
     if(!ndviDateControlDiv) return;
-    const isNdviActive = currentBaseLayer === ndvi || currentBaseLayer === ndviSentinel;
+    const isNdviActive = currentBaseLayer === ndviSentinel;
     ndviDateControlDiv.style.display = isNdviActive ? 'block' : 'none';
   }
 
   function switchMapLayer(key){
-    const layers = { satellite: satellite, ndvi: ndvi, ndviSentinel: ndviSentinel };
+    const layers = { satellite: satellite, ndviSentinel: ndviSentinel };
     const chosen = layers[key];
     if(!chosen || chosen === currentBaseLayer) return;
     if(map.hasLayer(currentBaseLayer)) map.removeLayer(currentBaseLayer);
@@ -1297,8 +1286,7 @@
     const div = L.DomUtil.create('div', 'leaflet-bar date-control');
     ndviDateControlDiv = div;
     div.innerHTML =
-      '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);">NDVI MODIS <input type="date" id="ndviDateInput" value="' + defaultNdviDate() + '" style="padding:3px 5px;font-size:11px;"></label>' +
-      '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);margin-top:4px;">NDVI Sentinel (até) <input type="date" id="sentinelDateInput" value="' + defaultSentinelEndDate() + '" style="padding:3px 5px;font-size:11px;"></label>';
+      '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);">NDVI Sentinel (até) <input type="date" id="sentinelDateInput" value="' + defaultSentinelEndDate() + '" style="padding:3px 5px;font-size:11px;"></label>';
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
     return div;
@@ -1433,7 +1421,6 @@
   fullscreenControl.addTo(map);
 
   // ---------- locate-me control (top-left): device location as a blue arrow ----------
-  document.getElementById('ndviDateInput').addEventListener('change', (e) => { if(e.target.value) ndvi.setUrl(ndviUrlForDate(e.target.value)); });
   document.getElementById('sentinelDateInput').addEventListener('change', (e) => { if(e.target.value) ndviSentinel.setParams({ time: sentinelTimeRange(e.target.value) }); });
 
   // ---------- side-nav + sub-tabs ----------
@@ -3587,7 +3574,7 @@
 
     const canManualComposite = currentBaseLayer && (currentBaseLayer.isWhiteBackground || typeof currentBaseLayer.getTileUrl === 'function');
     if(!canManualComposite){
-      setStatus('warn', 'Essa camada de mapa (Sentinel/WMS) não suporta captura por enquanto — troque para "Satélite" ou "NDVI MODIS" antes de capturar.');
+      setStatus('warn', 'Essa camada de mapa (Sentinel/WMS) não suporta captura por enquanto — troque para "Satélite" antes de capturar.');
       return;
     }
 
