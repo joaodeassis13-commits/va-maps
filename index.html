@@ -180,7 +180,7 @@
   }
 
   .map-row{ display:flex; gap:16px; flex:1; min-height:0; }
-  .map-panel{ flex:1 1 55%; min-width:0; position:relative; border-radius:12px; overflow:hidden; box-shadow: 0 1px 3px rgba(20,20,10,0.08); }
+  .map-panel{ flex:1 1 45%; min-width:0; position:relative; border-radius:12px; overflow:hidden; box-shadow: 0 1px 3px rgba(20,20,10,0.08); }
 
   body.nav-nomap .map-row{ display:none; }
   body.nav-nomap .control-panel{ width:100%; max-height:none; }
@@ -188,7 +188,7 @@
   body.subtab-upload .control-panel{ width:100%; max-height:none; }
 
   .charts-panel{
-    width: 300px; flex-shrink:0;
+    flex: 0 1 35%; min-width:220px;
     background:#fff; border:1px solid #E5DFCC; border-radius:12px;
     padding:16px; overflow-y:auto;
   }
@@ -198,7 +198,10 @@
     color:#9B9686; font-size:12.5px; text-align:center; padding:20px;
     border:1.5px dashed #D6D6D6; border-radius:8px;
   }
-  .chart-block{ height:220px; margin-bottom:18px; }
+  .chart-block{ height:220px; margin-bottom:18px; position:relative; }
+  .chart-block.chart-scroll-x{ overflow-x:auto; overflow-y:hidden; }
+  .chart-block.chart-scroll-y{ overflow-y:auto; overflow-x:hidden; }
+  .chart-block canvas{ display:block; }
   .chart-block:last-child{ margin-bottom:0; }
 
   .auth-overlay{
@@ -494,6 +497,7 @@
   .locate-control:hover{ color: #fff; }
   .locate-control.active{ color: #4A90D9; border-color: #4A90D9 !important; }
   .geo-arrow-wrap{ background:none !important; border:none !important; }
+  .talhao-label-icon{ background:none !important; border:none !important; pointer-events:none; }
   .geo-arrow{ width:22px; height:22px; transition: transform 0.15s linear; filter: drop-shadow(0 0 2px rgba(0,0,0,0.5)); }
   .date-control select{ width: 175px; font-size:12px; padding:5px 6px; }
 
@@ -563,7 +567,7 @@
     .sidebar-footer{ display:none; }
     .map-row{ flex-direction:column; }
     .map-panel{ min-height:50vh; }
-    .charts-panel{ width:100%; }
+    .charts-panel{ flex:0 0 auto; width:100%; }
   }
 </style>
 </head>
@@ -1086,12 +1090,72 @@
   satellite.addTo(map);
   labels.addTo(map);
   let currentBaseLayer = satellite;
+  const talhaoNamesToggle = L.layerGroup();
+  const talhaoAreasToggle = L.layerGroup();
   L.control.layers(
     { 'Satélite': satellite, 'Fundo branco': whiteBackground },
-    { 'Rótulos e limites': labels },
+    { 'Rótulos e limites': labels, 'Nome dos talhões': talhaoNamesToggle, 'Área': talhaoAreasToggle },
     { position: 'topright' }
   ).addTo(map);
   map.on('baselayerchange', (e) => { currentBaseLayer = e.layer; });
+
+  let showTalhaoNames = false;
+  let showTalhaoAreas = false;
+  map.on('overlayadd', (e) => {
+    if(e.layer === talhaoNamesToggle){ showTalhaoNames = true; updateAllTalhaoLabels(); }
+    if(e.layer === talhaoAreasToggle){ showTalhaoAreas = true; updateAllTalhaoLabels(); }
+  });
+  map.on('overlayremove', (e) => {
+    if(e.layer === talhaoNamesToggle){ showTalhaoNames = false; updateAllTalhaoLabels(); }
+    if(e.layer === talhaoAreasToggle){ showTalhaoAreas = false; updateAllTalhaoLabels(); }
+  });
+  map.on('zoomend', () => updateAllTalhaoLabels());
+
+  function getAutoLabelTextColor(hexColor){
+    const hex = String(hexColor || '#5A6B63').replace('#', '');
+    const full = hex.length === 3 ? hex.split('').map(c => c + c).join('') : hex;
+    const r = parseInt(full.slice(0, 2), 16) || 0, g = parseInt(full.slice(2, 4), 16) || 0, b = parseInt(full.slice(4, 6), 16) || 0;
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.55 ? '#000000' : '#ffffff';
+  }
+  function updateAllTalhaoLabels(){
+    placemarkLayers.forEach(layer => {
+      if(layer.isBoundaryPolygon) return;
+      const shouldShow = featureGroup.hasLayer(layer) && (showTalhaoNames || showTalhaoAreas);
+      if(!shouldShow){
+        if(layer._labelMarker){ map.removeLayer(layer._labelMarker); layer._labelMarker = null; }
+        return;
+      }
+      const bounds = layer.getBounds();
+      const center = bounds.getCenter();
+      const nw = map.latLngToContainerPoint(bounds.getNorthWest());
+      const se = map.latLngToContainerPoint(bounds.getSouthEast());
+      const boxW = Math.abs(se.x - nw.x), boxH = Math.abs(se.y - nw.y);
+      // Scales with the polygon's on-screen size at the current zoom, kept
+      // within a readable-but-not-oversized range.
+      const fontSize = Math.max(9, Math.min(20, Math.min(boxW, boxH) / 5));
+
+      const style = layer.options || {};
+      const fillColor = style.fill !== false ? (style.fillColor || style.color) : null;
+      const textColor = getAutoLabelTextColor(fillColor || '#5A6B63');
+      const outline = textColor === '#000000' ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.75)';
+
+      const parts = [];
+      if(showTalhaoNames) parts.push(escapeHtml(layer.featureName));
+      if(showTalhaoAreas && Number.isFinite(layer.areaHectares)) parts.push(layer.areaHectares.toFixed(1) + ' ha');
+      const html = '<div style="font-size:' + fontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
+        '; text-shadow:0 0 3px ' + outline + ', 0 0 3px ' + outline + ', 0 0 3px ' + outline +
+        '; text-align:center; white-space:nowrap; line-height:1.15;">' + parts.join('<br>') + '</div>';
+      const icon = L.divIcon({ className: 'talhao-label-icon', html, iconSize: null });
+
+      if(!layer._labelMarker){
+        layer._labelMarker = L.marker(center, { icon: icon, interactive: false, zIndexOffset: 500 }).addTo(map);
+      } else {
+        layer._labelMarker.setLatLng(center);
+        layer._labelMarker.setIcon(icon);
+      }
+    });
+  }
 
   // Satellite imagery date (Esri World Imagery Wayback) — lets the user pick
   // whichever capture date looks clearest (least cloud) for the area.
@@ -1225,6 +1289,7 @@
       if(shouldShow && !isShown) featureGroup.addLayer(l);
       if(!shouldShow && isShown) featureGroup.removeLayer(l);
     });
+    updateAllTalhaoLabels();
   }
 
   (function loadWaybackDates(){
@@ -1483,6 +1548,7 @@
     renderCategoryFilterBody();
     clearChartsPanel();
     document.getElementById('mapaStatus').textContent = '';
+    updateAllTalhaoLabels();
   }
 
   // Remembers, per category, which map/variable/date was last shown — so
@@ -1734,7 +1800,10 @@
   }
   function removeFarmLayersFromMap(farmName){
     const toRemove = placemarkLayers.filter(l => l.farmName === farmName);
-    toRemove.forEach(l => featureGroup.removeLayer(l));
+    toRemove.forEach(l => {
+      featureGroup.removeLayer(l);
+      if(l._labelMarker){ map.removeLayer(l._labelMarker); l._labelMarker = null; }
+    });
     placemarkLayers = placemarkLayers.filter(l => l.farmName !== farmName);
   }
 
@@ -2021,7 +2090,10 @@
       const { error } = await sb.from('retiros').delete().eq('id', id);
       if(error) throw error;
       const farm = farms.find(f => f.id === retiro.farm_id);
-      placemarkLayers.filter(l => l.retiroName === retiro.name && (!farm || l.farmName === farm.name)).forEach(l => featureGroup.removeLayer(l));
+      placemarkLayers.filter(l => l.retiroName === retiro.name && (!farm || l.farmName === farm.name)).forEach(l => {
+        featureGroup.removeLayer(l);
+        if(l._labelMarker){ map.removeLayer(l._labelMarker); l._labelMarker = null; }
+      });
       placemarkLayers = placemarkLayers.filter(l => !(l.retiroName === retiro.name && (!farm || l.farmName === farm.name)));
       retiros = retiros.filter(r => String(r.id) !== id);
       renderRetirosList();
@@ -2671,13 +2743,38 @@
       container.innerHTML = '<div class="charts-placeholder">Nenhum gráfico cadastrado para este mapa.<br>Crie um em "Geração de gráficos".</div>';
       return;
     }
-    container.innerHTML = defs.map((c, i) => '<div class="chart-block"><canvas id="mapChartCanvas_' + i + '"></canvas></div>').join('');
     const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ' };
-    defs.forEach((c, i) => {
+
+    // Compute every chart's data up front, so the wrapping <div> for each
+    // one can be sized (and made scrollable) to fit however many
+    // categories/dates it actually has, instead of squeezing them all into
+    // one fixed-size box where labels overlap or get skipped.
+    const computed = defs.map(c => {
       const isTimeline = c.chart_type === 'linha_tempo';
-      const { labels, values, colors, opacities } = isTimeline
+      const data = isTimeline
         ? Object.assign(computeTimelineChartData(c, varDef, rawRows), { colors: null, opacities: null })
         : computeChartData(c, varDef, latestByTalhao);
+      return { c, isTimeline, data };
+    });
+
+    container.innerHTML = computed.map(({ c, data }, i) => {
+      const n = Math.max(1, data.labels.length);
+      const isDonut = c.chart_type === 'rosca';
+      if(isDonut){
+        return '<div class="chart-block" style="height:240px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div>';
+      }
+      if(c.chart_type === 'barra'){
+        const h = Math.max(220, n * 32);
+        const scrollCls = h > 220 ? ' chart-scroll-y' : '';
+        return '<div class="chart-block' + scrollCls + '" style="height:220px;"><div style="height:' + h + 'px;width:100%;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
+      }
+      const w = Math.max(260, n * 46);
+      const scrollCls = w > 260 ? ' chart-scroll-x' : '';
+      return '<div class="chart-block' + scrollCls + '" style="height:220px;"><div style="height:220px;width:' + w + 'px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
+    }).join('');
+
+    computed.forEach(({ c, isTimeline, data }, i) => {
+      const { labels, values, colors, opacities } = data;
       const ctx = document.getElementById('mapChartCanvas_' + i).getContext('2d');
       const chartJsType = isTimeline ? 'line' : { coluna:'bar', barra:'bar', rosca:'doughnut', linha:'line' }[c.chart_type];
       const label = isTimeline
@@ -2728,11 +2825,13 @@
           scales: isDonut ? {} : (() => {
             // The value axis's numbers are redundant with the per-bar/point
             // labels — hide just that axis's ticks, keep the category/date
-            // axis's labels.
+            // axis's labels. The category axis never auto-skips labels —
+            // the chart's own width/height grows (with scrolling) to fit
+            // every one instead.
             const valueAxisIsY = c.chart_type !== 'barra';
             return {
-              y: { beginAtZero: true, grid: { display: false }, ticks: { display: !valueAxisIsY } },
-              x: { grid: { display: false }, ticks: { display: valueAxisIsY } }
+              y: { beginAtZero: true, grid: { display: false }, ticks: { display: !valueAxisIsY, autoSkip: !valueAxisIsY ? undefined : false } },
+              x: { grid: { display: false }, ticks: { display: valueAxisIsY, autoSkip: valueAxisIsY ? false : undefined } }
             };
           })()
         }
@@ -3283,6 +3382,7 @@
       else if(endDate) periodLabel = ' até ' + endDate;
       else if(startDate) periodLabel = ' a partir de ' + startDate;
       renderChartsForMap(defId, varDef, latestByTalhao, data);
+      updateAllTalhaoLabels();
 
       statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
