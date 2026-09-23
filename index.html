@@ -1138,6 +1138,22 @@
     return luminance > 0.55 ? '#000000' : '#ffffff';
   }
   function updateAllTalhaoLabels(){
+    // One shared font size for every visible label — based on the AVERAGE
+    // on-screen size of the visible talhões — so a few very large polygons
+    // don't end up towering over everyone else's label.
+    const visibleLayers = placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l));
+    let sharedFontSize = 12;
+    if(visibleLayers.length > 0 && (showTalhaoNames || showTalhaoAreas)){
+      const sizes = visibleLayers.map(layer => {
+        const bounds = layer.getBounds();
+        const nw = map.latLngToContainerPoint(bounds.getNorthWest());
+        const se = map.latLngToContainerPoint(bounds.getSouthEast());
+        return Math.min(Math.abs(se.x - nw.x), Math.abs(se.y - nw.y));
+      });
+      const meanSize = sizes.reduce((a,b) => a + b, 0) / sizes.length;
+      sharedFontSize = Math.max(9, Math.min(16, meanSize / 5));
+    }
+
     placemarkLayers.forEach(layer => {
       if(layer.isBoundaryPolygon) return;
       const shouldShow = featureGroup.hasLayer(layer) && (showTalhaoNames || showTalhaoAreas);
@@ -1145,14 +1161,7 @@
         if(layer._labelMarker){ map.removeLayer(layer._labelMarker); layer._labelMarker = null; }
         return;
       }
-      const bounds = layer.getBounds();
-      const center = bounds.getCenter();
-      const nw = map.latLngToContainerPoint(bounds.getNorthWest());
-      const se = map.latLngToContainerPoint(bounds.getSouthEast());
-      const boxW = Math.abs(se.x - nw.x), boxH = Math.abs(se.y - nw.y);
-      // Scales with the polygon's on-screen size at the current zoom, kept
-      // within a readable-but-not-oversized range.
-      const fontSize = Math.max(9, Math.min(20, Math.min(boxW, boxH) / 5));
+      const center = Array.isArray(layer.centroidLatLng) ? L.latLng(layer.centroidLatLng[0], layer.centroidLatLng[1]) : layer.getBounds().getCenter();
 
       const style = layer.options || {};
       const fillColor = style.fill !== false ? (style.fillColor || style.color) : null;
@@ -1162,7 +1171,7 @@
       const parts = [];
       if(showTalhaoNames) parts.push(escapeHtml(layer.featureName));
       if(showTalhaoAreas && Number.isFinite(layer.areaHectares)) parts.push(Math.round(layer.areaHectares) + ' ha');
-      const html = '<div style="font-size:' + fontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
+      const html = '<div style="font-size:' + sharedFontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
         '; text-shadow:0 0 3px ' + outline + ', 0 0 3px ' + outline + ', 0 0 3px ' + outline +
         '; text-align:center; white-space:nowrap; line-height:1.15;">' + parts.join('<br>') + '</div>';
       const icon = L.divIcon({ className: 'talhao-label-icon', html, iconSize: null });
@@ -1915,6 +1924,35 @@
     });
     return total;
   }
+  // True geometric centroid (area-weighted), not just the bounding-box
+  // center — matters for irregular/elongated talhões where the box center
+  // can sit visually off to one side.
+  function ringCentroid(ring){
+    let area = 0, cx = 0, cy = 0;
+    for(let i = 0; i < ring.length; i++){
+      const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+      const cross = p1[1] * p2[0] - p2[1] * p1[0];
+      area += cross;
+      cx += (p1[1] + p2[1]) * cross;
+      cy += (p1[0] + p2[0]) * cross;
+    }
+    area = area / 2;
+    if(Math.abs(area) < 1e-12){
+      const n = ring.length;
+      return { lat: ring.reduce((s,p) => s + p[0], 0) / n, lng: ring.reduce((s,p) => s + p[1], 0) / n, weight: 0 };
+    }
+    return { lat: cy / (6 * area), lng: cx / (6 * area), weight: Math.abs(area) };
+  }
+  function featureCentroid(feature){
+    let totalWeight = 0, sumLat = 0, sumLng = 0;
+    feature.parts.forEach(part => {
+      const c = ringCentroid(part[0]);
+      const w = c.weight || 1;
+      sumLat += c.lat * w; sumLng += c.lng * w; totalWeight += w;
+    });
+    if(totalWeight === 0) return [feature.parts[0][0][0][0], feature.parts[0][0][0][1]];
+    return [sumLat / totalWeight, sumLng / totalWeight];
+  }
 
   function addFeatureGroupToMap(farmName, features, retiroName, departamento){
     const boundaryFeature = detectBoundaryFeature(features);
@@ -1927,6 +1965,7 @@
       layer.departamento = departamento || null;
       layer.isBoundaryPolygon = isBoundary;
       layer.areaHectares = featureAreaHectares(f);
+      layer.centroidLatLng = featureCentroid(f);
       if(!isBoundary){
         layer.bindTooltip(f.name, { sticky: true });
         layer.on('mouseover', function(){ this.setStyle({ weight: 3 }); this.bringToFront(); });
@@ -2654,6 +2693,7 @@
     if(!def) return;
     if(e.target.classList.contains('mapdef-edit')){
       currentMapDef = JSON.parse(JSON.stringify(def));
+      currentMapDef.variables.forEach(v => { v._editorCollapsed = true; });
       document.getElementById('mapDefFormTitle').textContent = 'Editar mapa';
       document.getElementById('mapDefFormSection').style.display = 'block';
       renderMapDefForm();
