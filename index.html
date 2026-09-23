@@ -1802,6 +1802,9 @@
     return String(rawValue);
   }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  // Every delete/remove button in the system asks for confirmation first —
+  // one shared helper so the wording and behavior stay consistent everywhere.
+  function confirmDelete(message){ return window.confirm(message); }
   function setStatus(kind, msg){ const box = document.getElementById('statusBox'); box.className = 'status-box ' + kind; box.textContent = msg; }
   function formatDate(iso){ try{ const d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }catch(e){ return ''; } }
   // Every plain "data" value (sample_date, period bounds, etc.) is shown as
@@ -2106,6 +2109,8 @@
     if(!e.target.classList.contains('access-revoke')) return;
     const item = e.target.closest('.saved-item');
     const table = item.dataset.kind === 'invite' ? 'pending_supervisor_invites' : 'farm_access';
+    const msg = item.dataset.kind === 'invite' ? 'Cancelar este convite?' : 'Revogar este acesso?';
+    if(!confirmDelete(msg)) return;
     try{
       const { error } = await sb.from(table).delete().eq('id', item.dataset.id);
       if(error) throw error;
@@ -2192,6 +2197,7 @@
     const id = item.dataset.id;
     const farm = farms.find(f => String(f.id) === id);
     if(!farm) return;
+    if(!confirmDelete('Excluir a fazenda "' + farm.name + '" e todos os seus dados (retiros, talhões, uploads)? Essa ação não pode ser desfeita.')) return;
     try{
       const result = await sb.from('farms').delete().eq('id', id).select();
       if(result.error) throw result.error;
@@ -2280,6 +2286,7 @@
     const id = item.dataset.id;
     const retiro = retiros.find(r => String(r.id) === id);
     if(!retiro) return;
+    if(!confirmDelete('Excluir o retiro "' + retiro.name + '" e todos os seus talhões? Essa ação não pode ser desfeita.')) return;
     try{
       const { error } = await sb.from('retiros').delete().eq('id', id);
       if(error) throw error;
@@ -2301,6 +2308,7 @@
   document.getElementById('farmFilter').addEventListener('change', () => {
     renderRetiroOptions();
     applyFarmFilter();
+    refreshAvailableDates();
   });
   function applyFarmFilter(){
     updateLayerVisibility();
@@ -2556,6 +2564,7 @@
         return;
       }
       if(e.target.classList.contains('fx-remove')){
+        if(!confirmDelete('Remover esta faixa/categoria?')) return;
         const idx = Number(e.target.closest('.range-group').dataset.index);
         if(varDef.mode === 'numeric') varDef.intervalRows.splice(idx,1); else varDef.categoryRows.splice(idx,1);
         renderFaixaEditor(container, varDef);
@@ -2563,6 +2572,7 @@
         if(varDef.mode === 'numeric') varDef.intervalRows.push(newIntervalRow()); else varDef.categoryRows.push(newCategoryRow());
         renderFaixaEditor(container, varDef);
       } else if(e.target.classList.contains('fx-nodata-remove')){
+        if(!confirmDelete('Remover a faixa "Sem dado"?')) return;
         varDef.noData.enabled = false; renderFaixaEditor(container, varDef);
       } else if(e.target.classList.contains('fx-nodata-add')){
         varDef.noData.enabled = true; renderFaixaEditor(container, varDef);
@@ -2609,6 +2619,8 @@
     }
     if(!e.target.classList.contains('var-remove')) return;
     const idx = Number(e.target.closest('[data-var-index]').dataset.varIndex);
+    const varName = currentMapDef.variables[idx].name || 'esta variável';
+    if(!confirmDelete('Remover a variável "' + varName + '" e suas faixas?')) return;
     currentMapDef.variables.splice(idx,1);
     renderMapDefForm();
   });
@@ -2703,6 +2715,7 @@
       renderMapDefForm();
     }
     if(e.target.classList.contains('mapdef-delete')){
+      if(!confirmDelete('Excluir o mapa "' + def.name + '" e todos os dados enviados para ele? Essa ação não pode ser desfeita.')) return;
       try{
         const { error } = await sb.from('map_definitions').delete().eq('id', id);
         if(error) throw error;
@@ -2765,6 +2778,7 @@
       renderChartDefForm();
     }
     if(e.target.classList.contains('chartdef-delete')){
+      if(!confirmDelete('Excluir este gráfico?')) return;
       try{
         const { error } = await sb.from('chart_definitions').delete().eq('id', id);
         if(error) throw error;
@@ -3193,6 +3207,7 @@
   document.getElementById('uploadsList').addEventListener('click', async (e) => {
     if(!e.target.classList.contains('upload-delete')) return;
     const id = e.target.closest('.saved-item').dataset.id;
+    if(!confirmDelete('Excluir este envio e todos os dados que ele trouxe? Essa ação não pode ser desfeita.')) return;
     try{
       const { error } = await sb.from('data_uploads').delete().eq('id', id);
       if(error) throw error;
@@ -3390,8 +3405,11 @@
   async function refreshAvailableDates(){
     const mapId = document.getElementById('mapaSelect').value;
     if(!mapId){ availableDatesCache = []; populateMapaYearSelect(); return; }
+    const activeFarm = farms.find(f => f.name === document.getElementById('farmFilter').value);
     try{
-      const { data, error } = await sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId);
+      let query = sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId);
+      if(activeFarm) query = query.eq('farm_id', activeFarm.id);
+      const { data, error } = await query;
       if(error) throw error;
       availableDatesCache = Array.from(new Set((data || []).map(r => r.sample_date))).sort();
     }catch(err){
@@ -3813,6 +3831,7 @@
     }
     if(e.target.classList.contains('perim-capture')) captureImage(p);
     if(e.target.classList.contains('perim-delete')){
+      if(!confirmDelete('Excluir este perímetro?')) return;
       sb.from('perimeters').delete().eq('id', id).then(({ error }) => {
         if(error){ setStatus('warn', 'Não foi possível excluir: ' + error.message); return; }
         perimeters = perimeters.filter(pp => String(pp.id) !== id);
@@ -4234,6 +4253,7 @@
   document.getElementById('forageSamplesList').addEventListener('click', async (e) => {
     if(!e.target.classList.contains('forage-delete')) return;
     const id = e.target.closest('.saved-item').dataset.id;
+    if(!confirmDelete('Excluir esta amostra?')) return;
     try{
       const { error } = await sb.from('forage_samples').delete().eq('id', id);
       if(error) throw error;
