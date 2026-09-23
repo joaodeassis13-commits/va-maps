@@ -192,6 +192,18 @@
     background:#fff; border:1px solid #E5DFCC; border-radius:12px;
     padding:16px; overflow-y:auto;
   }
+  .map-charts-resizer{
+    flex: 0 0 auto; width:14px; margin:0 -3px;
+    cursor: col-resize; z-index: 5;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .map-charts-resizer span{
+    width:4px; height:52px; border-radius:4px;
+    background:#C9C2A8; transition: background 0.15s;
+  }
+  .map-charts-resizer:hover span, .map-charts-resizer.dragging span{ background:#166336; }
+  body.resizing-map-charts{ cursor: col-resize !important; user-select: none; }
+  body.resizing-map-charts .map-panel, body.resizing-map-charts .charts-panel{ pointer-events:none; }
   .charts-placeholder{
     height:100%; min-height:200px;
     display:flex; align-items:center; justify-content:center;
@@ -497,7 +509,7 @@
   .locate-control:hover{ color: #fff; }
   .locate-control.active{ color: #4A90D9; border-color: #4A90D9 !important; }
   .geo-arrow-wrap{ background:none !important; border:none !important; }
-  .talhao-label-icon{ background:none !important; border:none !important; pointer-events:none; }
+  .talhao-label-icon{ background:none !important; border:none !important; pointer-events:none; transform: translate(-50%, -50%); }
   .geo-arrow{ width:22px; height:22px; transition: transform 0.15s linear; filter: drop-shadow(0 0 2px rgba(0,0,0,0.5)); }
   .date-control select{ width: 175px; font-size:12px; padding:5px 6px; }
 
@@ -568,6 +580,7 @@
     .map-row{ flex-direction:column; }
     .map-panel{ min-height:50vh; }
     .charts-panel{ flex:0 0 auto; width:100%; }
+    .map-charts-resizer{ display:none; }
   }
 </style>
 </head>
@@ -793,9 +806,11 @@
             <div class="section">
               <div class="section-head"><h2>Upload de dados</h2></div>
               <div class="field-status" style="margin-bottom:8px;">
-                A planilha precisa ter as colunas <strong>Fazenda</strong>, <strong>Talhão</strong> e <strong>Data</strong>. As demais colunas são as variáveis. Pode trazer dados de mais de uma fazenda na mesma planilha — os talhões são reconhecidos pelos polígonos já cadastrados de cada fazenda. Enviar de novo os mesmos fazenda+talhão+data corrige o valor anterior; datas novas se somam ao histórico.
+                A planilha precisa ter as colunas <strong>Fazenda</strong>, <strong>Talhão</strong> e <strong>Data</strong>. As demais colunas são as variáveis. Pode trazer dados de mais de uma fazenda na mesma planilha — os talhões são reconhecidos pelos polígonos já cadastrados de cada fazenda (se um talhão ainda não existir no mapa, o dado é salvo do mesmo jeito e aparece assim que o polígono for criado). Enviar de novo os mesmos fazenda+talhão+data corrige o valor anterior; datas novas se somam ao histórico. Cada mapa tem seus próprios dados, exclusivos — escolha abaixo a qual mapa esse envio pertence.
               </div>
-              <label class="file-btn">Selecionar planilha
+              <label class="field-label">Mapa</label>
+              <select id="categoryUploadMapSelect"><option value="">Selecione…</option></select>
+              <label class="file-btn" style="margin-top:8px;">Selecionar planilha
                 <input type="file" id="categoryUploadInput" accept=".xlsx,.xls,.csv" hidden>
               </label>
               <div id="categoryUploadSheetWrap" style="display:none;">
@@ -912,6 +927,8 @@
             <div class="section">
               <div class="section-head"><h2>Calibração e estimativa</h2></div>
               <div id="forageCalibrationInfo" class="field-status">Registre pelo menos 3 amostras (com altura ou massa) para calibrar.</div>
+              <label class="field-label" style="margin-top:10px;">Mapa (a qual mapa essa estimativa pertence)</label>
+              <select id="forageEstimateMapSelect"><option value="">Selecione…</option></select>
               <label class="field-label" style="margin-top:10px;">Data de referência para estimar</label>
               <input type="date" id="forageEstimateDateInput">
               <button class="primary-btn" id="estimateForageBtn">Estimar para todos os talhões da fazenda</button>
@@ -937,6 +954,8 @@
               <button type="button" class="mini-btn" id="cancelDrawBtn">Cancelar</button>
             </div>
           </div>
+
+          <div class="map-charts-resizer" id="mapChartsResizer" title="Arraste para ajustar a largura do mapa e dos gráficos"><span></span></div>
 
           <div class="charts-panel" id="chartsPanel">
             <div class="charts-placeholder">Nenhum mapa mostrado ainda.</div>
@@ -1142,7 +1161,7 @@
 
       const parts = [];
       if(showTalhaoNames) parts.push(escapeHtml(layer.featureName));
-      if(showTalhaoAreas && Number.isFinite(layer.areaHectares)) parts.push(layer.areaHectares.toFixed(1) + ' ha');
+      if(showTalhaoAreas && Number.isFinite(layer.areaHectares)) parts.push(Math.round(layer.areaHectares) + ' ha');
       const html = '<div style="font-size:' + fontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
         '; text-shadow:0 0 3px ' + outline + ', 0 0 3px ' + outline + ', 0 0 3px ' + outline +
         '; text-align:center; white-space:nowrap; line-height:1.15;">' + parts.join('<br>') + '</div>';
@@ -1214,8 +1233,11 @@
     makeCollapsible(div, 'Categoria/Faixas', categoryFilterBodyEl);
     categoryFilterBodyEl.addEventListener('change', (e) => {
       if(!e.target.classList.contains('cat-filter-check')) return;
-      categoryFilterState.set(e.target.dataset.key, e.target.checked);
+      const key = e.target.dataset.key;
+      categoryFilterState.set(key, e.target.checked);
       updateLayerVisibility();
+      const legendRow = document.querySelector('#legend .legend-row[data-cat-key="' + key + '"]');
+      if(legendRow) legendRow.style.display = e.target.checked ? '' : 'none';
     });
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
@@ -1241,7 +1263,12 @@
         '<select id="mapCtrlEndDateSelect" style="flex:1;min-width:0;font-size:11px;"><option value="">Recente</option></select>' +
       '</div>' +
       '<button type="button" class="primary-btn" id="mapCtrlApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>' +
-      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;line-height:1.4;">Início/fim em branco = dado mais recente. Mesma data nos dois = um dia só.</div>';
+      '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        '<button type="button" class="mini-btn" id="mapCtrlPrevDateBtn" style="flex:1;">← Data anterior</button>' +
+        '<button type="button" class="mini-btn" id="mapCtrlNextDateBtn" style="flex:1;">Data seguinte →</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="mapCtrlDateNavStatus"></div>' +
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = dado mais recente. Mesma data nos dois = um dia só.</div>';
     makeCollapsible(div, 'Data', body);
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
@@ -1251,6 +1278,31 @@
   document.getElementById('mapCtrlApplyBtn').addEventListener('click', () => {
     document.getElementById('renderMapaBtn').click();
   });
+  // "Data anterior"/"Data seguinte": jump to whichever date with data comes
+  // right before/after the one currently selected — across every year/month,
+  // not just the ones in scope right now — and apply it immediately.
+  function navigateToAdjacentDate(direction){
+    const statusEl = document.getElementById('mapCtrlDateNavStatus');
+    if(availableDatesCache.length === 0){ statusEl.textContent = 'Nenhuma data com dado disponível.'; return; }
+    const current = document.getElementById('mapCtrlEndDateSelect').value || document.getElementById('mapCtrlStartDateSelect').value || availableDatesCache[availableDatesCache.length - 1];
+    let idx = availableDatesCache.indexOf(current);
+    if(idx === -1) idx = availableDatesCache.length - 1;
+    const targetIdx = idx + direction;
+    if(targetIdx < 0 || targetIdx >= availableDatesCache.length){
+      statusEl.textContent = direction < 0 ? 'Não há data anterior com dados.' : 'Não há data seguinte com dados.';
+      return;
+    }
+    statusEl.textContent = '';
+    const targetDate = availableDatesCache[targetIdx];
+    document.getElementById('mapCtrlStartDateSelect').value = targetDate;
+    document.getElementById('mapCtrlEndDateSelect').value = targetDate;
+    document.getElementById('mapCtrlYearSelect').value = targetDate.slice(0,4);
+    document.getElementById('mapCtrlMonthSelect').value = targetDate.slice(5,7);
+    populateMapaYearSelect();
+    document.getElementById('renderMapaBtn').click();
+  }
+  document.getElementById('mapCtrlPrevDateBtn').addEventListener('click', () => navigateToAdjacentDate(-1));
+  document.getElementById('mapCtrlNextDateBtn').addEventListener('click', () => navigateToAdjacentDate(1));
 
   function renderCategoryFilterBody(){
     if(!categoryFilterBodyEl) return;
@@ -1485,6 +1537,57 @@
   };
   fullscreenControl.addTo(map);
 
+  // ---------- map/charts width resizer (drag to trade width between the two) ----------
+  (function setupMapChartsResizer(){
+    const resizer = document.getElementById('mapChartsResizer');
+    const mapPanel = document.getElementById('mapPanel');
+    const chartsPanel = document.getElementById('chartsPanel');
+    const row = document.querySelector('.map-row');
+    if(!resizer || !mapPanel || !chartsPanel || !row) return;
+    const MIN_PERCENT = 15, MAX_PERCENT = 65;
+
+    function applySplit(chartsPercent){
+      chartsPanel.style.flex = '0 0 ' + chartsPercent + '%';
+      mapPanel.style.flex = '1 1 ' + (100 - chartsPercent) + '%';
+    }
+
+    const saved = parseFloat(localStorage.getItem('mapChartsSplitPercent'));
+    if(Number.isFinite(saved) && saved >= MIN_PERCENT && saved <= MAX_PERCENT) applySplit(saved);
+
+    let dragging = false;
+    function startDrag(clientX){
+      dragging = true;
+      resizer.classList.add('dragging');
+      document.body.classList.add('resizing-map-charts');
+    }
+    function moveDrag(clientX){
+      if(!dragging) return;
+      const rect = row.getBoundingClientRect();
+      let chartsPercent = ((rect.right - clientX) / rect.width) * 100;
+      chartsPercent = Math.max(MIN_PERCENT, Math.min(MAX_PERCENT, chartsPercent));
+      applySplit(chartsPercent);
+      map.invalidateSize();
+    }
+    function endDrag(){
+      if(!dragging) return;
+      dragging = false;
+      resizer.classList.remove('dragging');
+      document.body.classList.remove('resizing-map-charts');
+      const m = /([\d.]+)%/.exec(chartsPanel.style.flex || '');
+      if(m) localStorage.setItem('mapChartsSplitPercent', m[1]);
+      setTimeout(() => map.invalidateSize(), 60);
+    }
+
+    resizer.addEventListener('mousedown', (e) => { startDrag(e.clientX); e.preventDefault(); });
+    window.addEventListener('mousemove', (e) => moveDrag(e.clientX));
+    window.addEventListener('mouseup', endDrag);
+
+    resizer.addEventListener('touchstart', (e) => { startDrag(e.touches[0].clientX); }, { passive:true });
+    window.addEventListener('touchmove', (e) => { if(dragging) moveDrag(e.touches[0].clientX); }, { passive:true });
+    window.addEventListener('touchend', endDrag);
+  })();
+
+
   // ---------- locate-me control (top-left): device location as a blue arrow ----------
   document.getElementById('sentinelDateInput').addEventListener('change', (e) => { if(e.target.value) ndviSentinel.setParams({ time: sentinelTimeRange(e.target.value) }); });
 
@@ -1636,7 +1739,10 @@
     return legacy.concat(retiroFeatures);
   }
   function parseNumber(v){ return Number(String(v).trim().replace(',', '.')); }
-  function formatNumBR(n){ return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
+  function formatNumBR(n, decimals){
+    const d = Number.isFinite(decimals) ? decimals : 1;
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
   // A faixa numérica com só o mínimo informado vira "Acima de X"; só o
   // máximo informado vira "Abaixo de X"; com os dois, o intervalo normal.
   function intervalRowMatches(r, v){
@@ -1646,16 +1752,61 @@
     if(hasMax) return v <= r.max;
     return false;
   }
-  function formatIntervalRange(r){
+  // A value that falls just outside every faixa (by less than 1 unit) is
+  // snapped into whichever faixa's edge is closest, instead of being left
+  // as "fora das faixas" — only for coloring/grouping purposes; the value
+  // shown to the person (popup, etc.) is never altered.
+  function findIntervalIdxWithSnap(validRows, v){
+    const exact = validRows.findIndex(r => intervalRowMatches(r, v));
+    if(exact !== -1) return exact;
+    let bestIdx = -1, bestDiff = 1; // strictly less than 1 unit away
+    validRows.forEach((r, i) => {
+      const hasMin = Number.isFinite(r.min), hasMax = Number.isFinite(r.max);
+      let diff = Infinity;
+      if(hasMax && v > r.max) diff = v - r.max;
+      if(hasMin && v < r.min) diff = Math.min(diff, r.min - v);
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+    });
+    return bestIdx;
+  }
+  function formatIntervalRange(r, decimals){
     const hasMin = Number.isFinite(r.min), hasMax = Number.isFinite(r.max);
-    if(hasMin && hasMax) return formatNumBR(r.min) + ' - ' + formatNumBR(r.max);
-    if(hasMin) return 'Acima de ' + formatNumBR(r.min);
-    if(hasMax) return 'Abaixo de ' + formatNumBR(r.max);
+    if(hasMin && hasMax) return formatNumBR(r.min, decimals) + ' - ' + formatNumBR(r.max, decimals);
+    if(hasMin) return 'Acima de ' + formatNumBR(r.min, decimals);
+    if(hasMax) return 'Abaixo de ' + formatNumBR(r.max, decimals);
     return '';
+  }
+  // Formats a raw uploaded value the same way everywhere (popup, labels,
+  // legend): numeric variables always show exactly as many decimal places
+  // as their own spreadsheet column used; the built-in Área is always a
+  // whole number.
+  function formatVarValue(varDef, rawValue){
+    if(rawValue === undefined || rawValue === null || String(rawValue).trim() === '') return null;
+    if(varDef && varDef.mode === 'numeric'){
+      const n = parseNumber(rawValue);
+      if(Number.isFinite(n)) return formatNumBR(n, varDef.decimals);
+    }
+    return String(rawValue);
   }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function setStatus(kind, msg){ const box = document.getElementById('statusBox'); box.className = 'status-box ' + kind; box.textContent = msg; }
   function formatDate(iso){ try{ const d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }catch(e){ return ''; } }
+  // Every plain "data" value (sample_date, period bounds, etc.) is shown as
+  // dd-mm-aaaa, with no time component — this is separate from formatDate()
+  // above, which is for record-created timestamps (uploads, perimeters).
+  function formatDateBR(isoDateStr){
+    if(!isoDateStr) return '';
+    const parts = String(isoDateStr).slice(0, 10).split('-');
+    if(parts.length !== 3) return String(isoDateStr);
+    const [y, m, d] = parts;
+    return d + '-' + m + '-' + y;
+  }
+  function formatDateRangeBR(startDate, endDate){
+    if(startDate && endDate) return startDate === endDate ? formatDateBR(startDate) : (formatDateBR(startDate) + ' a ' + formatDateBR(endDate));
+    if(endDate) return 'até ' + formatDateBR(endDate);
+    if(startDate) return 'a partir de ' + formatDateBR(startDate);
+    return 'mais recente';
+  }
   function latLngsToPlain(ll){ if(Array.isArray(ll)) return ll.map(latLngsToPlain); return [ll.lat, ll.lng]; }
 
   // ---------- KML parsing ----------
@@ -2146,10 +2297,12 @@
     style.fillOpacity = getOpacityFraction(nd, 0.3);
     return style;
   }
-  function bindPopupGeneric(layer, primaryVarName, secondaryVarNames, rowValues, rowDate){
+  function bindPopupGeneric(layer, def, primaryVarName, secondaryVarNames, rowValues, rowDate){
     function fmtVal(name){
       if(!rowValues || rowValues[name] === undefined || rowValues[name] === null || String(rowValues[name]).trim() === '') return '—';
-      return escapeHtml(String(rowValues[name]));
+      const varDef = def ? def.variables.find(v => v.name === name) : null;
+      const formatted = formatVarValue(varDef, rowValues[name]);
+      return escapeHtml(formatted !== null ? formatted : String(rowValues[name]));
     }
     let html = '<div class="popup"><strong>' + escapeHtml(layer.featureName) + '</strong>';
     html += '<div class="popup-block"><div class="popup-row"><span>' + escapeHtml(primaryVarName) + '</span><strong>' + fmtVal(primaryVarName) + '</strong></div>';
@@ -2166,18 +2319,24 @@
   function renderLegendGeneric(entries, unmatchedCount, outOfRangeCount, title, noData){
     let html = '<div class="legend-header"><span class="legend-title">' + escapeHtml(title) + '</span>' +
       '<button type="button" class="legend-close" id="legendCloseBtn" title="Ocultar legenda">×</button></div>';
-    entries.forEach(en => {
+    entries.forEach((en, i) => {
+      const key = 'entry_' + i;
+      const hidden = categoryFilterState.get(key) === false;
       const borderPx = Math.max(1, Math.min(en.borderWidth || 0, 3));
       const border = (Number.isFinite(en.borderWidth) && en.borderWidth > 0) ? (borderPx + 'px solid ' + en.borderColor) : 'none';
       const swatchStyle = 'background:' + en.color + ';opacity:' + getOpacityFraction(en, 0.85) + ';border:' + border + ';';
-      html += '<div class="legend-row"><span class="swatch" style="' + swatchStyle + '"></span>' + escapeHtml(en.label) + '</div>';
+      html += '<div class="legend-row" data-cat-key="' + key + '"' + (hidden ? ' style="display:none;"' : '') + '><span class="swatch" style="' + swatchStyle + '"></span>' + escapeHtml(en.label) + '</div>';
     });
-    if(outOfRangeCount > 0) html += '<div class="legend-row"><span class="swatch" style="background:' + OUT_OF_RANGE_COLOR + '"></span>Fora das faixas definidas</div>';
+    if(outOfRangeCount > 0){
+      const hidden = categoryFilterState.get('outofrange') === false;
+      html += '<div class="legend-row" data-cat-key="outofrange"' + (hidden ? ' style="display:none;"' : '') + '><span class="swatch" style="background:' + OUT_OF_RANGE_COLOR + '"></span>Fora das faixas definidas</div>';
+    }
     if(unmatchedCount > 0 && noData && noData.enabled){
+      const hidden = categoryFilterState.get('nodata') === false;
       const ndBorderPx = Math.max(1, Math.min(noData.borderWidth || 0, 3));
       const ndBorder = (Number.isFinite(noData.borderWidth) && noData.borderWidth > 0) ? (ndBorderPx + 'px dashed ' + noData.borderColor) : 'none';
       const ndStyle = 'background:' + noData.color + ';opacity:' + getOpacityFraction(noData, 0.3) + ';border:' + ndBorder + ';';
-      html += '<div class="legend-row"><span class="swatch" style="' + ndStyle + '"></span>Sem dado</div>';
+      html += '<div class="legend-row" data-cat-key="nodata"' + (hidden ? ' style="display:none;"' : '') + '><span class="swatch" style="' + ndStyle + '"></span>Sem dado</div>';
     }
     const legend = document.getElementById('legend');
     legend.innerHTML = html;
@@ -2374,15 +2533,17 @@
     document.getElementById('mapDefGroup').value = currentMapDef.category;
     document.getElementById('mapDefName').value = currentMapDef.name;
     const listEl = document.getElementById('mapDefVariablesList');
-    listEl.innerHTML = currentMapDef.variables.map((v,i) => (
-      '<div class="section" data-var-index="' + i + '" style="flex:1 1 100%;">' +
+    listEl.innerHTML = currentMapDef.variables.map((v,i) => {
+      const collapsed = !!v._editorCollapsed;
+      return '<div class="section" data-var-index="' + i + '" style="flex:1 1 100%;">' +
         '<div class="section-head"><h2 style="font-size:13px;">Variável ' + (i+1) + '</h2>' +
-          '<button type="button" class="mini-btn danger var-remove" style="margin-left:auto;">Remover</button></div>' +
+          '<button type="button" class="mini-btn var-toggle" style="margin-left:auto;">' + (collapsed ? 'Mostrar' : 'Ocultar') + '</button>' +
+          '<button type="button" class="mini-btn danger var-remove">Remover</button></div>' +
         '<label class="field-label">Nome da variável (igual à coluna na planilha)</label>' +
         '<input type="text" class="var-name" value="' + escapeHtml(v.name) + '" placeholder="ex.: Altura (cm)">' +
-        '<div class="var-faixas" style="margin-top:10px;"></div>' +
-      '</div>'
-    )).join('');
+        '<div class="var-faixas" style="margin-top:10px;' + (collapsed ? 'display:none;' : '') + '"></div>' +
+      '</div>';
+    }).join('');
     listEl.querySelectorAll('.var-faixas').forEach((el, i) => {
       renderFaixaEditor(el, currentMapDef.variables[i]);
       wireFaixaEditor(el, currentMapDef.variables[i]);
@@ -2394,6 +2555,15 @@
     currentMapDef.variables[idx].name = e.target.value;
   });
   document.getElementById('mapDefVariablesList').addEventListener('click', (e) => {
+    if(e.target.classList.contains('var-toggle')){
+      const section = e.target.closest('[data-var-index]');
+      const idx = Number(section.dataset.varIndex);
+      const varDef = currentMapDef.variables[idx];
+      varDef._editorCollapsed = !varDef._editorCollapsed;
+      section.querySelector('.var-faixas').style.display = varDef._editorCollapsed ? 'none' : '';
+      e.target.textContent = varDef._editorCollapsed ? 'Mostrar' : 'Ocultar';
+      return;
+    }
     if(!e.target.classList.contains('var-remove')) return;
     const idx = Number(e.target.closest('[data-var-index]').dataset.varIndex);
     currentMapDef.variables.splice(idx,1);
@@ -2422,7 +2592,10 @@
       if(!v.name.trim()){ statusEl.textContent = 'Toda variável precisa de um nome (igual à coluna na planilha).'; return; }
     }
     try{
-      const payload = { category: currentMapDef.category, name: currentMapDef.name, variables: currentMapDef.variables };
+      const payload = { category: currentMapDef.category, name: currentMapDef.name, variables: currentMapDef.variables.map(v => {
+        const { _editorCollapsed, ...clean } = v;
+        return clean;
+      }) };
       let result;
       if(currentMapDef.id) result = await sb.from('map_definitions').update(payload).eq('id', currentMapDef.id).select().single();
       else result = await sb.from('map_definitions').insert(payload).select().single();
@@ -2444,6 +2617,7 @@
       mapDefinitions = data || [];
       renderMapDefinitionsList();
       populateMapaSelectForCategory();
+      populateForageEstimateMapSelect();
       idbSet('mapDefinitions', mapDefinitions);
       return true;
     }catch(err){
@@ -2452,6 +2626,7 @@
         mapDefinitions = cached;
         renderMapDefinitionsList();
         populateMapaSelectForCategory();
+        populateForageEstimateMapSelect();
         return true;
       }
       document.getElementById('mapDefinitionsList').innerHTML = 'Erro: ' + escapeHtml(err.message);
@@ -2644,17 +2819,14 @@
   function computeChartData(chartDef, varDef, latestByTalhao){
     // Groups are the map's own faixas/categories for its current primary
     // variable — same buckets and colors as the map's legend.
+    const numericIntervalRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) || Number.isFinite(r.max)) : null;
     const buckets = varDef.mode === 'numeric'
-      ? varDef.intervalRows
-          .filter(r => Number.isFinite(r.min) || Number.isFinite(r.max))
-          .map(r => ({
-            label: (r.label && r.label.trim()) ? r.label.trim() : formatIntervalRange(r),
-            color: r.color, opacityPercent: r.opacityPercent,
-            matches: v => intervalRowMatches(r, v)
+      ? numericIntervalRows.map(r => ({
+            label: (r.label && r.label.trim()) ? r.label.trim() : formatIntervalRange(r, varDef.decimals),
+            color: r.color, opacityPercent: r.opacityPercent
           }))
       : varDef.categoryRows.map(r => ({
-          label: r.value, color: r.color, opacityPercent: r.opacityPercent,
-          matches: v => String(v).trim() === r.value
+          label: r.value, color: r.color, opacityPercent: r.opacityPercent
         }));
 
     const rawValues = buckets.map(() => []);
@@ -2665,8 +2837,9 @@
       const row = latestByTalhao.get(key);
       const primaryRaw = row ? row.values[varDef.name] : undefined;
       if(primaryRaw === undefined || primaryRaw === null || String(primaryRaw).trim() === '') return;
-      const v = varDef.mode === 'numeric' ? parseNumber(primaryRaw) : String(primaryRaw).trim();
-      const bucketIdx = buckets.findIndex(b => b.matches(v));
+      const bucketIdx = varDef.mode === 'numeric'
+        ? findIntervalIdxWithSnap(numericIntervalRows, parseNumber(primaryRaw))
+        : buckets.findIndex(b => b.label === String(primaryRaw).trim());
       if(bucketIdx === -1) return;
 
       if(chartDef.calculation === 'contagem'){
@@ -2727,13 +2900,14 @@
       const total = sums.reduce((a,b) => a+b, 0);
       values = sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
     }
-    return { labels: labels.map(d => { const [y,m,dd] = d.split('-'); return dd + '/' + m + '/' + y; }), values };
+    return { labels: labels.map(formatDateBR), values };
   }
 
   function renderChartsForMap(mapDefId, varDef, latestByTalhao, rawRows){
     const container = document.getElementById('chartsPanel');
     activeChartInstances.forEach(ch => { try{ ch.destroy(); }catch(e){} });
     activeChartInstances = [];
+    const mapDef = mapDefinitions.find(m => String(m.id) === String(mapDefId));
     const defs = chartDefinitions.filter(c => String(c.map_definition_id) === String(mapDefId));
     if(typeof Chart === 'undefined'){
       container.innerHTML = '<div class="charts-placeholder">A biblioteca de gráficos não carregou (é preciso estar com internet).</div>';
@@ -2782,6 +2956,16 @@
         : CALC_LABELS[c.calculation] + (c.response_variable ? (' ' + chartVarLabel(c.response_variable)) : '') + ' por ' + varDef.name;
       const isDonut = c.chart_type === 'rosca';
       const lineColor = '#166336';
+      // Value labels follow the same decimals rule as everywhere else:
+      // counts are always whole numbers, Área is always whole hectares, and
+      // a real uploaded variable uses its own column's decimal count.
+      const chartDecimals = (() => {
+        if(c.calculation === 'contagem') return 0;
+        if(isTimeline) return Number.isFinite(varDef.decimals) ? varDef.decimals : 1;
+        if(c.response_variable === '__area_ha') return 0;
+        const respVarDef = mapDef ? mapDef.variables.find(v => v.name === c.response_variable) : null;
+        return respVarDef && Number.isFinite(respVarDef.decimals) ? respVarDef.decimals : 1;
+      })();
       // Colors always follow each faixa/categoria's own map color+opacity — except
       // a timeline, which is a single series (no per-bucket colors to reuse).
       const backgroundColors = isTimeline ? hexToRgba(lineColor, 0.15) : colors.map((hex, idx) => hexToRgba(hex, opacities[idx]));
@@ -2812,14 +2996,14 @@
               font: { size: 10.5, weight: 'bold' },
               anchor: 'center',
               align: 'center',
-              formatter: (v) => Number.isInteger(v) ? v : v.toFixed(1)
+              formatter: (v) => formatNumBR(v, chartDecimals)
             } : {
               color: '#232520',
               font: { size: 10.5, weight: 'bold' },
               anchor: 'end',
               align: 'end',
               offset: 2,
-              formatter: (v) => Number.isInteger(v) ? v : v.toFixed(1)
+              formatter: (v) => formatNumBR(v, chartDecimals)
             }
           },
           scales: isDonut ? {} : (() => {
@@ -2877,13 +3061,14 @@
       if(error) throw error;
       const uploads = data || [];
       if(uploads.length === 0){ container.innerHTML = 'Nenhum envio registrado ainda nesta aba.'; return; }
-      container.innerHTML = uploads.map(u => (
-        '<div class="saved-item" data-id="' + u.id + '">' +
+      container.innerHTML = uploads.map(u => {
+        const mapDef = mapDefinitions.find(m => String(m.id) === String(u.map_definition_id));
+        return '<div class="saved-item" data-id="' + u.id + '">' +
           '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(u.file_name) + '</div>' +
-          '<div class="saved-item-date">' + escapeHtml(u.uploaded_by || 'usuário desconhecido') + ' · ' + formatDate(u.created_at) + ' · ' + u.row_count + ' linha(s)</div></div>' +
+          '<div class="saved-item-date">' + escapeHtml(mapDef ? mapDef.name : '(mapa não identificado)') + ' · ' + escapeHtml(u.uploaded_by || 'usuário desconhecido') + ' · ' + formatDate(u.created_at) + ' · ' + u.row_count + ' linha(s)</div></div>' +
           '<div class="saved-item-actions"><button type="button" class="mini-btn danger upload-delete" title="Excluir este envio e seus dados">×</button></div>' +
-        '</div>'
-      )).join('');
+        '</div>';
+      }).join('');
     }catch(err){
       container.innerHTML = 'Erro ao carregar envios: ' + escapeHtml(err.message);
     }
@@ -2911,6 +3096,9 @@
   }
   document.getElementById('categoryUploadBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('categoryUploadStatus');
+    const mapId = document.getElementById('categoryUploadMapSelect').value;
+    const targetDef = mapDefinitions.find(m => String(m.id) === mapId);
+    if(!targetDef){ statusEl.textContent = 'Escolha a qual mapa esse envio pertence.'; return; }
     if(categoryUploadRows.length === 0){ statusEl.textContent = 'Nenhuma linha para enviar.'; return; }
     const sampleRow = categoryUploadRows[0];
     const farmKey = findColumnKey(sampleRow, ['Fazenda','Farm']);
@@ -2927,6 +3115,7 @@
     try{
       const { data, error } = await sb.from('data_uploads').insert({
         category: currentCategory,
+        map_definition_id: targetDef.id,
         file_name: categoryUploadFileName || 'planilha.xlsx',
         uploaded_by: currentUser ? currentUser.email : null,
         row_count: 0
@@ -2938,7 +3127,7 @@
       return;
     }
 
-    let ok = 0, fail = 0; const failReasons = [];
+    let ok = 0, fail = 0, noPolygonYet = 0; const failReasons = [];
     for(const row of categoryUploadRows){
       const farmName = String(row[farmKey] || '').trim();
       const talhaoName = String(row[talhaoKey] || '').trim();
@@ -2948,17 +3137,22 @@
       if(!farmName || !talhaoName || !dateStr){ fail++; continue; }
       const farm = farms.find(f => normalize(f.name) === normalize(farmName));
       if(!farm){ fail++; failReasons.push(farmName + '/' + talhaoName + ': fazenda não encontrada'); continue; }
+      // If the polygon for this talhão doesn't exist yet, the data is still
+      // saved (using the name as typed) — it starts showing up on its own
+      // as soon as a matching polygon is created (KML import matches
+      // talhões by name at display time, not at upload time).
       const talhaoFeature = getAllFarmFeatures(farm).find(f => normalize(f.name) === normalize(talhaoName));
-      if(!talhaoFeature){ fail++; failReasons.push(farmName + '/' + talhaoName + ': talhão não encontrado'); continue; }
+      const resolvedTalhaoName = talhaoFeature ? talhaoFeature.name : talhaoName;
+      if(!talhaoFeature) noPolygonYet++;
 
       const values = {};
       valueKeys.forEach(k => { values[k] = row[k]; });
 
       try{
         const { error } = await sb.from('category_data').upsert({
-          category: currentCategory, farm_id: farm.id, farm_name: farm.name,
-          talhao_name: talhaoFeature.name, sample_date: dateStr, values, upload_id: uploadRecordId
-        }, { onConflict: 'category,farm_id,talhao_name,sample_date' });
+          category: currentCategory, map_definition_id: targetDef.id, farm_id: farm.id, farm_name: farm.name,
+          talhao_name: resolvedTalhaoName, sample_date: dateStr, values, upload_id: uploadRecordId
+        }, { onConflict: 'category,map_definition_id,farm_id,talhao_name,sample_date' });
         if(error) throw error;
         ok++;
       }catch(err){ fail++; failReasons.push(farmName + '/' + talhaoName + ': ' + err.message); }
@@ -2966,7 +3160,8 @@
 
     try{ await sb.from('data_uploads').update({ row_count: ok }).eq('id', uploadRecordId); }catch(err){}
 
-    let msg = ok + ' linha(s) salva(s).';
+    let msg = ok + ' linha(s) salva(s) no mapa "' + targetDef.name + '".';
+    if(noPolygonYet > 0) msg += ' ' + noPolygonYet + ' ainda sem polígono correspondente (vão aparecer assim que o talhão for criado).';
     if(fail > 0){
       const preview = failReasons.slice(0,5).join('; ') + (failReasons.length > 5 ? ' e mais ' + (failReasons.length - 5) : '');
       msg += ' ' + fail + ' com problema: ' + preview + '.';
@@ -2974,20 +3169,35 @@
     statusEl.textContent = msg;
     loadUploadsList();
     if(ok > 0){
-      await syncMapDefinitionsWithUploadedColumns(valueKeys);
+      await syncMapDefinitionWithUploadedColumns(targetDef, valueKeys);
       refreshAvailableDates();
     }
   });
 
-  // After a successful upload, every map in this category is kept in sync with
-  // the columns that actually arrived: any column not yet represented as a
-  // variable is added automatically (available as a secondary variable), and
-  // categorical variables with no faixas yet get their categories auto-detected.
+  // After a successful upload, only THIS map (not every map in the category)
+  // is kept in sync with the columns that actually arrived: any column not
+  // yet represented as a variable is added automatically (available as a
+  // secondary variable), and categorical variables with no faixas yet get
+  // their categories auto-detected.
   const AUTO_CATEGORICAL_PALETTE = ['#8BA888','#C98F2B','#6E8FB0','#B5566B','#8A6BB5','#9AA53C','#C1584B','#3C8A9A','#D9A441','#5F7A61'];
   function isNumericColumn(colName){
     const vals = categoryUploadRows.map(r => r[colName]).filter(v => v !== undefined && v !== null && String(v).trim() !== '');
     if(vals.length === 0) return false;
     return vals.every(v => Number.isFinite(parseNumber(v)));
+  }
+  // The most decimal places actually used for this column in the uploaded
+  // spreadsheet — every display of this variable (map, popup, legend,
+  // charts) always shows exactly this many, matching what was typed.
+  function detectDecimalsForColumn(colName){
+    let maxDecimals = 0;
+    categoryUploadRows.forEach(r => {
+      const v = r[colName];
+      if(v === undefined || v === null || String(v).trim() === '') return;
+      const s = String(v).trim().replace(',', '.');
+      const m = /\.(\d+)$/.exec(s);
+      if(m) maxDecimals = Math.max(maxDecimals, m[1].length);
+    });
+    return Math.min(maxDecimals, 4);
   }
   function distinctColumnValues(colName){
     const set = new Set();
@@ -3003,41 +3213,43 @@
       opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
     }));
   }
-  async function syncMapDefinitionsWithUploadedColumns(valueKeys){
-    const relevantDefs = mapDefinitions.filter(m => m.category === currentCategory);
-    let anyChanged = false;
-    for(const def of relevantDefs){
-      let changed = false;
-      const existingNames = new Set(def.variables.map(v => v.name));
+  async function syncMapDefinitionWithUploadedColumns(def, valueKeys){
+    let changed = false;
+    const existingNames = new Set(def.variables.map(v => v.name));
 
-      valueKeys.forEach(col => {
-        if(existingNames.has(col)) return;
-        const numeric = isNumericColumn(col);
-        def.variables.push({
-          name: col,
-          mode: numeric ? 'numeric' : 'categorical',
-          intervalRows: [],
-          categoryRows: numeric ? [] : autoCategoryRowsFor(col),
-          noData: newNoData()
-        });
-        existingNames.add(col);
-        changed = true;
+    valueKeys.forEach(col => {
+      if(existingNames.has(col)) return;
+      const numeric = isNumericColumn(col);
+      def.variables.push({
+        name: col,
+        mode: numeric ? 'numeric' : 'categorical',
+        decimals: numeric ? detectDecimalsForColumn(col) : undefined,
+        intervalRows: [],
+        categoryRows: numeric ? [] : autoCategoryRowsFor(col),
+        noData: newNoData()
       });
+      existingNames.add(col);
+      changed = true;
+    });
 
-      def.variables.forEach(v => {
-        if(v.mode === 'categorical' && (!v.categoryRows || v.categoryRows.length === 0)){
-          const rows = autoCategoryRowsFor(v.name);
-          if(rows.length > 0){ v.categoryRows = rows; changed = true; }
-        }
-      });
-
-      if(changed){
-        anyChanged = true;
-        try{ await sb.from('map_definitions').update({ variables: def.variables }).eq('id', def.id); }
-        catch(err){ /* will try again on the next upload */ }
+    def.variables.forEach(v => {
+      if(v.mode === 'categorical' && (!v.categoryRows || v.categoryRows.length === 0)){
+        const rows = autoCategoryRowsFor(v.name);
+        if(rows.length > 0){ v.categoryRows = rows; changed = true; }
       }
+      // Keep decimals current with the latest upload for this column, in case
+      // a newer spreadsheet uses more decimal places than the first one did.
+      if(v.mode === 'numeric' && valueKeys.includes(v.name)){
+        const detected = detectDecimalsForColumn(v.name);
+        if(detected !== v.decimals){ v.decimals = detected; changed = true; }
+      }
+    });
+
+    if(changed){
+      try{ await sb.from('map_definitions').update({ variables: def.variables }).eq('id', def.id); }
+      catch(err){ /* will try again on the next upload */ }
+      await loadMapDefinitions();
     }
-    if(anyChanged) await loadMapDefinitions();
   }
 
   // ================= MAPA (visualização a partir da definição + dados) =================
@@ -3048,13 +3260,21 @@
     sel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
     if(relevant.some(m => String(m.id) === prev)) sel.value = prev;
     populateMapaVariableSelect();
+
+    const uploadSel = document.getElementById('categoryUploadMapSelect');
+    const prevUpload = uploadSel.value;
+    uploadSel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
+    if(relevant.some(m => String(m.id) === prevUpload)) uploadSel.value = prevUpload;
+
     return refreshAvailableDates();
   }
 
   let availableDatesCache = [];
   async function refreshAvailableDates(){
+    const mapId = document.getElementById('mapaSelect').value;
+    if(!mapId){ availableDatesCache = []; populateMapaYearSelect(); return; }
     try{
-      const { data, error } = await sb.from('category_data').select('sample_date').eq('category', currentCategory);
+      const { data, error } = await sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId);
       if(error) throw error;
       availableDatesCache = Array.from(new Set((data || []).map(r => r.sample_date))).sort();
     }catch(err){
@@ -3106,10 +3326,7 @@
       const year = yearSel.value, month = monthSel.value;
       const relevant = availableDatesCache.filter(d => (!year || d.slice(0,4) === year) && (!month || d.slice(5,7) === month));
       const sorted = relevant.slice().sort();
-      const optionsHtml = sorted.map(d => {
-        const [y, m, dd] = d.split('-');
-        return '<option value="' + d + '">' + dd + '/' + m + '/' + y + '</option>';
-      }).join('');
+      const optionsHtml = sorted.map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
       const prevStart = startSel.value, prevEnd = endSel.value;
       startSel.innerHTML = '<option value="">Início</option>' + optionsHtml;
       endSel.innerHTML = '<option value="">Mais recente</option>' + optionsHtml;
@@ -3129,7 +3346,10 @@
     if(monthSel) monthSel.addEventListener('change', populateMapaPeriodSelects);
   });
 
-  document.getElementById('mapaSelect').addEventListener('change', populateMapaVariableSelect);
+  document.getElementById('mapaSelect').addEventListener('change', () => {
+    populateMapaVariableSelect();
+    refreshAvailableDates();
+  });
   function populateMapaVariableSelect(){
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
@@ -3198,7 +3418,7 @@
     if(!e.target.classList.contains('departamento-checkbox')) return;
     updateDepartamentoTriggerLabel();
     renderRetiroOptions();
-    updateLayerVisibility();
+    applyFarmFilter();
   });
   document.getElementById('departamentoTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -3235,7 +3455,7 @@
   document.getElementById('retiroPanel').addEventListener('change', (e) => {
     if(!e.target.classList.contains('retiro-checkbox')) return;
     updateRetiroTriggerLabel();
-    updateLayerVisibility();
+    applyFarmFilter();
   });
   document.getElementById('retiroTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -3269,25 +3489,63 @@
     try{
       let data;
       let usedOfflineCache = false;
+      const idbKey = 'categoryData_' + currentCategory + '_' + defId;
       try{
-        let query = sb.from('category_data').select('*').eq('category', currentCategory);
+        let query = sb.from('category_data').select('*').eq('category', currentCategory).eq('map_definition_id', defId);
         if(startDate) query = query.gte('sample_date', startDate);
         if(endDate) query = query.lte('sample_date', endDate);
         const res = await query.order('sample_date', { ascending: false });
         if(res.error) throw res.error;
         data = res.data;
-        idbSet('categoryData_' + currentCategory, data);
+        idbSet(idbKey, data);
       }catch(networkErr){
-        const cached = await idbGet('categoryData_' + currentCategory);
+        const cached = await idbGet(idbKey);
         if(!cached) throw networkErr;
         data = cached.filter(r => (!startDate || r.sample_date >= startDate) && (!endDate || r.sample_date <= endDate));
         usedOfflineCache = true;
       }
 
-      const latestByTalhao = new Map();
+      // How each talhão's values are computed from the fetched rows:
+      // - same date in início/fim → exact match for that one day only.
+      // - início ≠ fim (a real period) → average of every numeric field
+      //   across the dates with data inside that period (non-numeric fields
+      //   fall back to the most recent occurrence, since they can't be averaged).
+      // - both blank → the single most recent row (unbounded), as before.
+      const singleDay = !!(startDate && endDate && startDate === endDate);
+      function computeEffectiveRow(rows){
+        if(rows.length === 0) return null;
+        if(singleDay) return rows.find(r => r.sample_date === startDate) || null;
+        if(!startDate && !endDate) return rows.reduce((a,b) => (a.sample_date > b.sample_date ? a : b));
+        const allKeys = new Set();
+        rows.forEach(r => Object.keys(r.values || {}).forEach(k => allKeys.add(k)));
+        const values = {};
+        allKeys.forEach(k => {
+          const present = rows.filter(r => r.values[k] !== undefined && r.values[k] !== null && String(r.values[k]).trim() !== '');
+          if(present.length === 0) return;
+          const allNumeric = present.every(r => Number.isFinite(parseNumber(r.values[k])));
+          if(allNumeric){
+            const nums = present.map(r => parseNumber(r.values[k]));
+            values[k] = Math.round((nums.reduce((a,b) => a+b, 0) / nums.length) * 100) / 100;
+          } else {
+            values[k] = present[present.length - 1].values[k]; // most recent (rows sorted ascending)
+          }
+        });
+        const last = rows[rows.length - 1];
+        return { farm_id: last.farm_id, talhao_name: last.talhao_name, sample_date: formatDateRangeBR(startDate, endDate), values };
+      }
+
+      const rowsByTalhao = new Map();
       (data || []).forEach(row => {
         const key = row.farm_id + '|' + normalize(row.talhao_name);
-        if(!latestByTalhao.has(key)) latestByTalhao.set(key, row);
+        if(!rowsByTalhao.has(key)) rowsByTalhao.set(key, []);
+        rowsByTalhao.get(key).push(row);
+      });
+      rowsByTalhao.forEach(rows => rows.sort((a,b) => (a.sample_date < b.sample_date ? -1 : (a.sample_date > b.sample_date ? 1 : 0))));
+
+      const latestByTalhao = new Map();
+      rowsByTalhao.forEach((rows, key) => {
+        const effective = computeEffectiveRow(rows);
+        if(effective) latestByTalhao.set(key, effective);
       });
 
       // If the primary variable has no usable faixas yet (categorical with no
@@ -3342,13 +3600,13 @@
           layer.setStyle(noDataStyleGeneric(varDef.noData));
           layer._paintGroup = 'nodata';
           unmatched.push(layer.farmName + '/' + layer.featureName);
-          bindPopupGeneric(layer, varDef.name, secondaryNames, row ? row.values : null, row ? row.sample_date : '');
+          bindPopupGeneric(layer, def, varDef.name, secondaryNames, row ? row.values : null, row ? row.sample_date : '');
           return;
         }
         matchedCount++;
         if(varDef.mode === 'numeric'){
           const v = parseNumber(value);
-          const idx = validRows.findIndex(r => intervalRowMatches(r, v));
+          const idx = findIntervalIdxWithSnap(validRows, v);
           if(idx !== -1){ layer.setStyle(matchedLayerStyle(validRows[idx])); layer._paintGroup = 'entry_' + idx; }
           else { outOfRangeCount++; layer.setStyle({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 }); layer._paintGroup = 'outofrange'; }
         } else {
@@ -3357,30 +3615,27 @@
           if(idx !== -1){ layer.setStyle(matchedLayerStyle(varDef.categoryRows[idx])); layer._paintGroup = 'entry_' + idx; }
           else { outOfRangeCount++; layer.setStyle({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 }); layer._paintGroup = 'outofrange'; }
         }
-        bindPopupGeneric(layer, varDef.name, secondaryNames, row.values, row.sample_date);
+        bindPopupGeneric(layer, def, varDef.name, secondaryNames, row.values, row.sample_date);
       });
 
       const entries = varDef.mode === 'numeric'
         ? validRows.map(r => {
-            const rangeStr = formatIntervalRange(r);
+            const rangeStr = formatIntervalRange(r, varDef.decimals);
             const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
             return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
           })
         : varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 }));
 
-      renderLegendGeneric(entries, unmatched.length, outOfRangeCount, varDef.name, varDef.noData);
-
       categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
       if(outOfRangeCount > 0) categoryFilterEntries.push({ key: 'outofrange', label: 'Fora das faixas definidas', color: OUT_OF_RANGE_COLOR, opacityPercent: 100, borderWidth: 0 });
       if(unmatched.length > 0 && varDef.noData && varDef.noData.enabled) categoryFilterEntries.push({ key: 'nodata', label: 'Sem dado', color: varDef.noData.color, opacityPercent: varDef.noData.opacityPercent, borderWidth: varDef.noData.borderWidth, borderColor: varDef.noData.borderColor });
       categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
+
+      renderLegendGeneric(entries, unmatched.length, outOfRangeCount, varDef.name, varDef.noData);
       renderCategoryFilterBody();
       updateLayerVisibility();
 
-      let periodLabel = ' (mais recente)';
-      if(startDate && endDate) periodLabel = startDate === endDate ? (' em ' + endDate) : (' de ' + startDate + ' a ' + endDate);
-      else if(endDate) periodLabel = ' até ' + endDate;
-      else if(startDate) periodLabel = ' a partir de ' + startDate;
+      const periodLabel = ' (' + (singleDay ? ('em ' + formatDateBR(startDate)) : formatDateRangeBR(startDate, endDate)) + (!singleDay && (startDate || endDate) && startDate !== endDate ? ' — média do período' : '') + ')';
       renderChartsForMap(defId, varDef, latestByTalhao, data);
       updateAllTalhaoLabels();
 
@@ -3815,6 +4070,13 @@
     sel.innerHTML = '<option value="">Selecione…</option>' + farms.map(f => '<option value="' + f.id + '">' + escapeHtml(f.name) + '</option>').join('');
     if(farms.some(f => String(f.id) === prev)) sel.value = prev;
   }
+  function populateForageEstimateMapSelect(){
+    const sel = document.getElementById('forageEstimateMapSelect');
+    const relevant = mapDefinitions.filter(m => m.category === 'pastagens');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
+    if(relevant.some(m => String(m.id) === prev)) sel.value = prev;
+  }
   document.getElementById('forageFarmSelect').addEventListener('change', async (e) => {
     const farm = farms.find(f => String(f.id) === e.target.value);
     const talhaoSel = document.getElementById('forageTalhaoSelect');
@@ -3840,7 +4102,7 @@
         container.innerHTML = forageSamplesCache.map(s => (
           '<div class="saved-item" data-id="' + s.id + '">' +
             '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(s.talhao_name) + '</div>' +
-            '<div class="saved-item-date">' + s.sample_date + ' — NDVI ' + Number(s.ndvi_value).toFixed(3) +
+            '<div class="saved-item-date">' + formatDateBR(s.sample_date) + ' — NDVI ' + Number(s.ndvi_value).toFixed(3) +
               (s.height_cm != null ? ' · ' + s.height_cm + ' cm' : '') +
               (s.mass_kg_ha != null ? ' · ' + s.mass_kg_ha + ' kg MS/ha' : '') + '</div></div>' +
             '<div class="saved-item-actions"><button type="button" class="mini-btn danger forage-delete">×</button></div>' +
@@ -3916,8 +4178,11 @@
     const farmId = document.getElementById('forageFarmSelect').value;
     const farm = farms.find(f => String(f.id) === farmId);
     const dateStr = document.getElementById('forageEstimateDateInput').value;
+    const mapId = document.getElementById('forageEstimateMapSelect').value;
+    const targetDef = mapDefinitions.find(m => String(m.id) === mapId);
     const statusEl = document.getElementById('forageEstimateStatus');
     if(!farm){ statusEl.textContent = 'Selecione uma fazenda.'; return; }
+    if(!targetDef){ statusEl.textContent = 'Escolha a qual mapa essa estimativa pertence.'; return; }
     if(!dateStr){ statusEl.textContent = 'Escolha a data de referência.'; return; }
     if(!heightFit && !massFit){ statusEl.textContent = 'Ainda não há calibração suficiente (mínimo 3 amostras de altura ou de massa).'; return; }
 
@@ -3932,9 +4197,9 @@
         if(heightFit) values['Altura estimada (cm)'] = Number((heightFit.a + heightFit.b * ndviValue).toFixed(1));
         if(massFit) values['Massa estimada (kg MS/ha)'] = Math.round(massFit.a + massFit.b * ndviValue);
         await sb.from('category_data').upsert({
-          category: 'pastagens', farm_id: farm.id, farm_name: farm.name,
+          category: 'pastagens', map_definition_id: targetDef.id, farm_id: farm.id, farm_name: farm.name,
           talhao_name: feature.name, sample_date: dateStr, values
-        }, { onConflict: 'category,farm_id,talhao_name,sample_date' });
+        }, { onConflict: 'category,map_definition_id,farm_id,talhao_name,sample_date' });
         ok++;
       }catch(err){ fail++; }
     }
