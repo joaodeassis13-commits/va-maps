@@ -1307,11 +1307,19 @@
     }
     statusEl.textContent = '';
     const targetDate = availableDatesCache[targetIdx];
+    const targetYear = targetDate.slice(0,4);
+    const targetMonth = targetDate.slice(5,7);
+    // Rebuild each level's OPTIONS before selecting a value in it — setting
+    // a <select>'s value to something not yet among its options is a silent
+    // no-op, which is what made the year snap back when crossing into one
+    // that wasn't already listed.
+    populateMapaYearSelect();
+    document.getElementById('mapCtrlYearSelect').value = targetYear;
+    populateMapaMonthSelect();
+    document.getElementById('mapCtrlMonthSelect').value = targetMonth;
+    populateMapaPeriodSelects();
     document.getElementById('mapCtrlStartDateSelect').value = targetDate;
     document.getElementById('mapCtrlEndDateSelect').value = targetDate;
-    document.getElementById('mapCtrlYearSelect').value = targetDate.slice(0,4);
-    document.getElementById('mapCtrlMonthSelect').value = targetDate.slice(5,7);
-    populateMapaYearSelect();
     document.getElementById('renderMapaBtn').click();
   }
   document.getElementById('mapCtrlPrevDateBtn').addEventListener('click', () => navigateToAdjacentDate(-1));
@@ -1580,6 +1588,7 @@
       chartsPercent = Math.max(MIN_PERCENT, Math.min(MAX_PERCENT, chartsPercent));
       applySplit(chartsPercent);
       map.invalidateSize();
+      activeChartInstances.forEach(ch => { try{ ch.resize(); }catch(e){} });
     }
     function endDrag(){
       if(!dragging) return;
@@ -1588,7 +1597,7 @@
       document.body.classList.remove('resizing-map-charts');
       const m = /([\d.]+)%/.exec(chartsPanel.style.flex || '');
       if(m) localStorage.setItem('mapChartsSplitPercent', m[1]);
-      setTimeout(() => map.invalidateSize(), 60);
+      setTimeout(() => { map.invalidateSize(); activeChartInstances.forEach(ch => { try{ ch.resize(); }catch(e){} }); }, 60);
     }
 
     resizer.addEventListener('mousedown', (e) => { startDrag(e.clientX); e.preventDefault(); });
@@ -3040,20 +3049,28 @@
       return { c, isTimeline, data };
     });
 
+    // Charts fill however much width the charts-panel actually has right
+    // now (so dragging the map/charts resizer makes them bigger too) —
+    // only a chart with more categories than fit gets a larger fixed width
+    // plus its own horizontal scrollbar.
+    const CHART_HEIGHT = 320;
+    const availableWidth = Math.max(200, container.clientWidth - 32); // minus the panel's own padding
     container.innerHTML = computed.map(({ c, data }, i) => {
       const n = Math.max(1, data.labels.length);
       const isDonut = c.chart_type === 'rosca';
       if(isDonut){
-        return '<div class="chart-block" style="height:240px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div>';
+        return '<div class="chart-block" style="height:' + CHART_HEIGHT + 'px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div>';
       }
       if(c.chart_type === 'barra'){
-        const h = Math.max(220, n * 32);
-        const scrollCls = h > 220 ? ' chart-scroll-y' : '';
-        return '<div class="chart-block' + scrollCls + '" style="height:220px;"><div style="height:' + h + 'px;width:100%;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
+        const h = Math.max(CHART_HEIGHT, n * 32);
+        const scrollCls = h > CHART_HEIGHT ? ' chart-scroll-y' : '';
+        return '<div class="chart-block' + scrollCls + '" style="height:' + CHART_HEIGHT + 'px;"><div style="height:' + h + 'px;width:100%;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
       }
-      const w = Math.max(260, n * 46);
-      const scrollCls = w > 260 ? ' chart-scroll-x' : '';
-      return '<div class="chart-block' + scrollCls + '" style="height:220px;"><div style="height:220px;width:' + w + 'px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
+      const idealWidth = n * 46;
+      if(idealWidth <= availableWidth){
+        return '<div class="chart-block" style="height:' + CHART_HEIGHT + 'px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div>';
+      }
+      return '<div class="chart-block chart-scroll-x" style="height:' + CHART_HEIGHT + 'px;"><div style="height:' + CHART_HEIGHT + 'px;width:' + idealWidth + 'px;"><canvas id="mapChartCanvas_' + i + '"></canvas></div></div>';
     }).join('');
 
     computed.forEach(({ c, isTimeline, data }, i) => {
@@ -3161,7 +3178,7 @@
   }
 
 
-  let categoryUploadWorkbook = null, categoryUploadRows = [], categoryUploadFileName = '';
+  let categoryUploadWorkbook = null, categoryUploadRows = [], categoryUploadRowsFormatted = [], categoryUploadFileName = '';
   document.getElementById('categoryUploadInput').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if(!file) return;
     categoryUploadFileName = file.name;
@@ -3180,6 +3197,12 @@
   function loadCategoryUploadSheet(name){
     const ws = categoryUploadWorkbook.Sheets[name];
     categoryUploadRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    // A second, "as displayed in Excel" read of the same sheet: numbers keep
+    // whatever decimal places the person set in Excel's cell formatting,
+    // even when the cell secretly stores more precision underneath. Used
+    // for the value columns only — Fazenda/Talhão/Data still come from the
+    // row above, so dates stay real Date objects.
+    categoryUploadRowsFormatted = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
     document.getElementById('categoryUploadBtn').style.display = categoryUploadRows.length > 0 ? 'inline-block' : 'none';
     document.getElementById('categoryUploadStatus').textContent = categoryUploadRows.length + ' linha(s) na planilha.';
   }
@@ -3260,7 +3283,9 @@
     }
 
     let ok = 0, fail = 0, noPolygonYet = 0; const failReasons = [];
-    for(const row of categoryUploadRows){
+    for(let i = 0; i < categoryUploadRows.length; i++){
+      const row = categoryUploadRows[i];
+      const formattedRow = categoryUploadRowsFormatted[i] || row;
       const farmName = String(row[farmKey] || '').trim();
       const talhaoName = String(row[talhaoKey] || '').trim();
       let dateVal = row[dateKey], dateStr;
@@ -3277,8 +3302,11 @@
       const resolvedTalhaoName = talhaoFeature ? talhaoFeature.name : talhaoName;
       if(!talhaoFeature) noPolygonYet++;
 
+      // Values are taken from the "as displayed in Excel" reading — so a
+      // cell showing 5.2 (even if it secretly stores 5.23456) is saved and
+      // shown everywhere in the system as 5.2, matching what the person sees.
       const values = {};
-      valueKeys.forEach(k => { values[k] = row[k]; });
+      valueKeys.forEach(k => { values[k] = formattedRow[k]; });
 
       try{
         const { error } = await sb.from('category_data').upsert({
@@ -3313,7 +3341,7 @@
   // their categories auto-detected.
   const AUTO_CATEGORICAL_PALETTE = ['#8BA888','#C98F2B','#6E8FB0','#B5566B','#8A6BB5','#9AA53C','#C1584B','#3C8A9A','#D9A441','#5F7A61'];
   function isNumericColumn(colName){
-    const vals = categoryUploadRows.map(r => r[colName]).filter(v => v !== undefined && v !== null && String(v).trim() !== '');
+    const vals = categoryUploadRowsFormatted.map(r => r[colName]).filter(v => v !== undefined && v !== null && String(v).trim() !== '');
     if(vals.length === 0) return false;
     return vals.every(v => Number.isFinite(parseNumber(v)));
   }
@@ -3322,7 +3350,7 @@
   // charts) always shows exactly this many, matching what was typed.
   function detectDecimalsForColumn(colName){
     let maxDecimals = 0;
-    categoryUploadRows.forEach(r => {
+    categoryUploadRowsFormatted.forEach(r => {
       const v = r[colName];
       if(v === undefined || v === null || String(v).trim() === '') return;
       const s = String(v).trim().replace(',', '.');
@@ -3333,7 +3361,7 @@
   }
   function distinctColumnValues(colName){
     const set = new Set();
-    categoryUploadRows.forEach(r => {
+    categoryUploadRowsFormatted.forEach(r => {
       const v = r[colName];
       if(v !== undefined && v !== null && String(v).trim() !== '') set.add(String(v).trim());
     });
@@ -3660,7 +3688,7 @@
           const allNumeric = present.every(r => Number.isFinite(parseNumber(r.values[k])));
           if(allNumeric){
             const nums = present.map(r => parseNumber(r.values[k]));
-            values[k] = Math.round((nums.reduce((a,b) => a+b, 0) / nums.length) * 100) / 100;
+            values[k] = nums.reduce((a,b) => a+b, 0) / nums.length;
           } else {
             values[k] = present[present.length - 1].values[k]; // most recent (rows sorted ascending)
           }
