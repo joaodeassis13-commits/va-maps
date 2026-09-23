@@ -794,10 +794,15 @@
               <select id="chartDefCalcSelect">
                 <option value="soma">Soma</option>
                 <option value="media">Média</option>
+                <option value="media_ponderada">Média ponderada</option>
                 <option value="contagem">Contagem</option>
                 <option value="porcentagem">Porcentagem</option>
               </select>
-              <div class="field-status" style="margin-top:6px;" id="chartDefHint">O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. Pode escolher mais de uma "Variável resposta" — cada uma vira uma série no gráfico (em "Coluna empilhada", elas se empilham dentro de cada faixa/categoria). Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.</div>
+              <div id="chartDefWeightGroup" style="display:none;">
+                <label class="field-label">Ponderar por</label>
+                <select id="chartDefWeightSelect"><option value="__area_ha">Área (ha)</option></select>
+              </div>
+              <div class="field-status" style="margin-top:6px;" id="chartDefHint">O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. Pode escolher mais de uma "Variável resposta" — cada uma vira uma série no gráfico (em "Coluna empilhada", elas se empilham dentro de cada faixa/categoria). Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria. Em "Média ponderada", cada talhão pesa de acordo com a variável escolhida em "Ponderar por" (ex.: área ou número de cabeças).</div>
               <div style="display:flex; gap:8px; margin-top:14px; align-items:center;">
                 <button class="primary-btn" id="saveChartDefBtn" style="margin-top:0; width:auto; padding:10px 18px;">Salvar gráfico</button>
                 <button type="button" class="mini-btn" id="cancelChartDefBtn">Cancelar</button>
@@ -2777,14 +2782,15 @@
     const el = document.getElementById('chartDefinitionsList');
     if(chartDefinitions.length === 0){ el.innerHTML = 'Nenhum gráfico cadastrado ainda.'; return; }
     const CHART_TYPE_LABELS = { coluna:'Coluna', coluna_empilhada:'Coluna empilhada', barra:'Barra', rosca:'Rosca', linha:'Linha', linha_tempo:'Linha do tempo' };
-    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'Porcentagem' };
+    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'Porcentagem', media_ponderada:'Média ponderada' };
     el.innerHTML = chartDefinitions.map(c => {
       const def = mapDefinitions.find(m => String(m.id) === String(c.map_definition_id));
       const mapLabel = def ? def.name : '(mapa removido)';
       const responseLabel = (c.response_variables || []).map(chartVarLabel).join(', ');
-      const desc = c.chart_type === 'linha_tempo'
+      const weightSuffix = c.calculation === 'media_ponderada' && c.weight_variable ? ' (ponderada por ' + chartVarLabel(c.weight_variable) + ')' : '';
+      const desc = (c.chart_type === 'linha_tempo'
         ? CALC_LABELS[c.calculation] + ' da variável principal do mapa, ao longo das datas do período'
-        : CALC_LABELS[c.calculation] + (responseLabel ? (' de ' + responseLabel) : '') + ' por faixa/categoria da variável principal do mapa';
+        : CALC_LABELS[c.calculation] + (responseLabel ? (' de ' + responseLabel) : '') + ' por faixa/categoria da variável principal do mapa') + weightSuffix;
       return '<div class="saved-item" data-id="' + c.id + '">' +
         '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
         '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
@@ -2873,16 +2879,36 @@
     const wrap = document.getElementById('chartDefResponseVarMultiSelect');
     if(wrap && !wrap.contains(e.target)) document.getElementById('chartDefResponseVarPanel').style.display = 'none';
   });
-  document.getElementById('chartDefMapSelect').addEventListener('change', populateChartDefVariableSelects);
+  document.getElementById('chartDefMapSelect').addEventListener('change', () => {
+    populateChartDefVariableSelects();
+    if(document.getElementById('chartDefCalcSelect').value === 'media_ponderada') populateChartDefWeightSelect();
+  });
 
   function updateChartDefTypeUI(){
     const isTimeline = document.getElementById('chartDefTypeSelect').value === 'linha_tempo';
     document.getElementById('chartDefResponseVarGroup').style.display = isTimeline ? 'none' : 'block';
     document.getElementById('chartDefHint').textContent = isTimeline
       ? 'Uma linha do tempo usa a própria variável principal do mapa como valor — o eixo mostra as datas do período selecionado, e o cálculo combina os talhões visíveis em cada data.'
-      : 'O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria.';
+      : 'O gráfico agrupa sempre pela mesma variável principal e pelas mesmas faixas/cores que estiverem ativas no mapa no momento — troque a variável principal na aba "Mapa" para mudar o agrupamento. "Variável resposta" é o valor calculado para cada faixa/categoria. Em "Contagem", a variável resposta é ignorada — conta quantos talhões há em cada faixa/categoria. Em "Média ponderada", cada talhão pesa de acordo com a variável escolhida em "Ponderar por" (ex.: área ou número de cabeças).';
   }
   document.getElementById('chartDefTypeSelect').addEventListener('change', updateChartDefTypeUI);
+
+  function populateChartDefWeightSelect(){
+    const mapId = document.getElementById('chartDefMapSelect').value;
+    const def = mapDefinitions.find(m => String(m.id) === mapId);
+    const sel = document.getElementById('chartDefWeightSelect');
+    const prev = sel.value;
+    const numericVars = def ? def.variables.filter(v => v.mode === 'numeric') : [];
+    sel.innerHTML = '<option value="__area_ha">Área (ha)</option>' +
+      numericVars.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('');
+    if(prev && (prev === '__area_ha' || numericVars.some(v => v.name === prev))) sel.value = prev;
+  }
+  function updateChartDefCalcUI(){
+    const isWeighted = document.getElementById('chartDefCalcSelect').value === 'media_ponderada';
+    document.getElementById('chartDefWeightGroup').style.display = isWeighted ? 'block' : 'none';
+    if(isWeighted) populateChartDefWeightSelect();
+  }
+  document.getElementById('chartDefCalcSelect').addEventListener('change', updateChartDefCalcUI);
 
   function renderChartDefForm(){
     document.getElementById('chartDefMapSelect').value = currentChartDef.map_definition_id || '';
@@ -2895,9 +2921,11 @@
     document.getElementById('chartDefTypeSelect').value = currentChartDef.chart_type || 'coluna';
     document.getElementById('chartDefCalcSelect').value = currentChartDef.calculation || 'soma';
     updateChartDefTypeUI();
+    updateChartDefCalcUI();
+    if(currentChartDef.weight_variable) document.getElementById('chartDefWeightSelect').value = currentChartDef.weight_variable;
   }
   document.getElementById('newChartDefBtn').addEventListener('click', () => {
-    currentChartDef = { map_definition_id: '', chart_type: 'coluna', response_variables: [], calculation: 'soma' };
+    currentChartDef = { map_definition_id: '', chart_type: 'coluna', response_variables: [], calculation: 'soma', weight_variable: null };
     document.getElementById('chartDefFormTitle').textContent = 'Novo gráfico';
     document.getElementById('chartDefFormSection').style.display = 'block';
     renderChartDefForm();
@@ -2912,10 +2940,12 @@
     const chartType = document.getElementById('chartDefTypeSelect').value;
     const responseVars = getSelectedChartDefResponseVars();
     const calculation = document.getElementById('chartDefCalcSelect').value;
+    const weightVariable = document.getElementById('chartDefWeightSelect').value;
     if(!mapId){ statusEl.textContent = 'Escolha o mapa.'; return; }
     if(chartType !== 'linha_tempo' && calculation !== 'contagem' && responseVars.length === 0){ statusEl.textContent = 'Escolha ao menos uma variável resposta (só "Contagem" e "Linha do tempo" dispensam isso).'; return; }
+    if(calculation === 'media_ponderada' && !weightVariable){ statusEl.textContent = 'Escolha pelo que a média ponderada deve pesar (área ou uma variável).'; return; }
     try{
-      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variables: (chartType === 'linha_tempo' || calculation === 'contagem') ? null : responseVars, calculation };
+      const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variables: (chartType === 'linha_tempo' || calculation === 'contagem') ? null : responseVars, calculation, weight_variable: calculation === 'media_ponderada' ? weightVariable : null };
       let result;
       if(currentChartDef.id) result = await sb.from('chart_definitions').update(payload).eq('id', currentChartDef.id).select().single();
       else result = await sb.from('chart_definitions').insert(payload).select().single();
@@ -2973,20 +3003,32 @@
 
       responseKeys.forEach(respKey => {
         if(chartDef.calculation === 'contagem'){
-          rawByResponse.get(respKey)[bucketIdx].push(1);
+          rawByResponse.get(respKey)[bucketIdx].push({ value: 1, weight: 1 });
         } else {
           const respRaw = resolveChartFieldValue(respKey, layer, row);
           const rv = respKey === '__area_ha' ? respRaw : parseNumber(respRaw);
-          if(Number.isFinite(rv)) rawByResponse.get(respKey)[bucketIdx].push(rv);
+          if(Number.isFinite(rv)){
+            let weight = 1;
+            if(chartDef.calculation === 'media_ponderada' && chartDef.weight_variable){
+              const wRaw = resolveChartFieldValue(chartDef.weight_variable, layer, row);
+              const wv = chartDef.weight_variable === '__area_ha' ? wRaw : parseNumber(wRaw);
+              weight = Number.isFinite(wv) ? wv : 0;
+            }
+            rawByResponse.get(respKey)[bucketIdx].push({ value: rv, weight });
+          }
         }
       });
     });
 
     function aggregate(rawValues){
-      if(chartDef.calculation === 'soma') return rawValues.map(arr => arr.reduce((a,b) => a+b, 0));
-      if(chartDef.calculation === 'media') return rawValues.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0);
+      if(chartDef.calculation === 'soma') return rawValues.map(arr => arr.reduce((a,p) => a+p.value, 0));
+      if(chartDef.calculation === 'media') return rawValues.map(arr => arr.length ? arr.reduce((a,p) => a+p.value, 0) / arr.length : 0);
       if(chartDef.calculation === 'contagem') return rawValues.map(arr => arr.length);
-      const sums = rawValues.map(arr => arr.reduce((a,b) => a+b, 0));
+      if(chartDef.calculation === 'media_ponderada') return rawValues.map(arr => {
+        const totalWeight = arr.reduce((a,p) => a + p.weight, 0);
+        return totalWeight > 0 ? arr.reduce((a,p) => a + p.value * p.weight, 0) / totalWeight : 0;
+      });
+      const sums = rawValues.map(arr => arr.reduce((a,p) => a+p.value, 0));
       const total = sums.reduce((a,b) => a+b, 0);
       return sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
     }
@@ -3008,32 +3050,43 @@
   // period by date, aggregating the map's own primary variable per date —
   // across whichever talhões are currently visible on the map.
   function computeTimelineChartData(chartDef, varDef, rawRows){
-    const visibleKeys = new Set(
-      placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l)).map(l => {
-        const farm = farms.find(f => f.name === l.farmName);
-        return (farm ? farm.id : '') + '|' + normalize(l.featureName);
-      })
-    );
+    const visibleLayerByKey = new Map();
+    placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l)).forEach(l => {
+      const farm = farms.find(f => f.name === l.farmName);
+      visibleLayerByKey.set((farm ? farm.id : '') + '|' + normalize(l.featureName), l);
+    });
     const byDate = new Map();
     (rawRows || []).forEach(row => {
       const key = row.farm_id + '|' + normalize(row.talhao_name);
-      if(!visibleKeys.has(key)) return;
+      const layer = visibleLayerByKey.get(key);
+      if(!layer) return;
       const raw = row.values[varDef.name];
       if(raw === undefined || raw === null || String(raw).trim() === '') return;
       if(chartDef.calculation !== 'contagem'){
         const v = parseNumber(raw);
         if(!Number.isFinite(v)) return;
       }
+      let weight = 1;
+      if(chartDef.calculation === 'media_ponderada' && chartDef.weight_variable){
+        const wRaw = chartDef.weight_variable === '__area_ha' ? layer.areaHectares : row.values[chartDef.weight_variable];
+        const wv = chartDef.weight_variable === '__area_ha' ? wRaw : parseNumber(wRaw);
+        weight = Number.isFinite(wv) ? wv : 0;
+      }
       if(!byDate.has(row.sample_date)) byDate.set(row.sample_date, []);
-      byDate.get(row.sample_date).push(chartDef.calculation === 'contagem' ? 1 : parseNumber(raw));
+      byDate.get(row.sample_date).push({ value: chartDef.calculation === 'contagem' ? 1 : parseNumber(raw), weight });
     });
     const dateKeys = Array.from(byDate.keys()).sort();
     let values;
-    if(chartDef.calculation === 'soma') values = dateKeys.map(d => byDate.get(d).reduce((a,b) => a+b, 0));
-    else if(chartDef.calculation === 'media') values = dateKeys.map(d => { const arr = byDate.get(d); return arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0; });
+    if(chartDef.calculation === 'soma') values = dateKeys.map(d => byDate.get(d).reduce((a,p) => a+p.value, 0));
+    else if(chartDef.calculation === 'media') values = dateKeys.map(d => { const arr = byDate.get(d); return arr.length ? arr.reduce((a,p) => a+p.value, 0) / arr.length : 0; });
     else if(chartDef.calculation === 'contagem') values = dateKeys.map(d => byDate.get(d).length);
+    else if(chartDef.calculation === 'media_ponderada') values = dateKeys.map(d => {
+      const arr = byDate.get(d);
+      const totalWeight = arr.reduce((a,p) => a + p.weight, 0);
+      return totalWeight > 0 ? arr.reduce((a,p) => a + p.value * p.weight, 0) / totalWeight : 0;
+    });
     else { // porcentagem — share of the whole period's total that fell on each date
-      const sums = dateKeys.map(d => byDate.get(d).reduce((a,b) => a+b, 0));
+      const sums = dateKeys.map(d => byDate.get(d).reduce((a,p) => a+p.value, 0));
       const total = sums.reduce((a,b) => a+b, 0);
       values = sums.map(s => total > 0 ? Math.round(s / total * 1000) / 10 : 0);
     }
@@ -3054,7 +3107,7 @@
       container.innerHTML = '<div class="charts-placeholder">Nenhum gráfico cadastrado para este mapa.<br>Crie um em "Geração de gráficos".</div>';
       return;
     }
-    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ' };
+    const CALC_LABELS = { soma:'Soma', media:'Média', contagem:'Contagem', porcentagem:'% ', media_ponderada:'Média ponderada' };
     const MULTI_SERIES_PALETTE = ['#166336','#C98F2B','#6E8FB0','#B5566B','#8A6BB5','#9AA53C','#C1584B','#3C8A9A'];
 
     // Compute every chart's data up front, so the wrapping <div> for each
