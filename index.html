@@ -1704,6 +1704,10 @@
       cb.checked = state.secondaryIdxs.includes(Number(cb.value));
     });
     updateSecondaryVarTriggerLabel();
+    // The available-dates list is specific to whichever map is selected —
+    // it must be refreshed for THIS map before restoring the year/month/
+    // period fields, or they rebuild against the previous (empty) list.
+    await refreshAvailableDates();
     document.getElementById('mapCtrlYearSelect').value = state.year || '';
     populateMapaMonthSelect();
     document.getElementById('mapCtrlMonthSelect').value = state.month || '';
