@@ -181,6 +181,15 @@
 
   .map-row{ display:flex; gap:16px; flex:1; min-height:0; }
   .map-panel{ flex:1 1 45%; min-width:0; position:relative; border-radius:12px; overflow:hidden; box-shadow: 0 1px 3px rgba(20,20,10,0.08); }
+  .map-loading-overlay{
+    position:absolute; inset:0; z-index:900;
+    background:rgba(18,24,26,0.45);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .map-loading-box{
+    background:#12181A; color:#fff; font-weight:600; font-size:14px;
+    padding:12px 22px; border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
 
   body.nav-nomap .map-row{ display:none; }
   body.nav-nomap .control-panel{ width:100%; max-height:none; }
@@ -867,13 +876,12 @@
                   <div class="multi-select-panel" id="secondaryVarPanel" style="display:none;"></div>
                 </div>
               </div>
-              <div class="field-group" style="flex:0 0 auto;">
-                <label class="field-label">&nbsp;</label>
-                <button class="primary-btn" id="renderMapaBtn" style="margin-top:0; width:auto; padding:9px 20px; white-space:nowrap;">Mostrar no mapa</button>
-              </div>
-              <div class="field-status" style="flex-basis:100%; margin-top:2px;">Escolha o mapa e a variável aqui; a data (Ano/Mês/Período) fica no painel "Data", dentro do próprio mapa. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
-              <div class="field-status" id="mapaStatus" style="flex-basis:100%;"></div>
             </div>
+            <div style="margin-top:12px;">
+              <button class="primary-btn" id="renderMapaBtn" style="margin-top:0; width:auto; padding:9px 20px; white-space:nowrap;">Mostrar no mapa</button>
+            </div>
+            <div class="field-status" style="margin-top:8px;">Escolha o mapa e a variável aqui; a data (Ano/Mês/Período) fica no painel "Data", dentro do próprio mapa. Segure Ctrl (ou Cmd) para escolher mais de uma variável secundária — elas aparecem ao clicar no talhão no mapa.</div>
+            <div class="field-status" id="mapaStatus"></div>
           </div>
 
           <div id="panel-capturar" style="display:none;">
@@ -952,6 +960,9 @@
         <div class="map-row">
           <div class="map-panel" id="mapPanel">
             <div id="map"></div>
+            <div class="map-loading-overlay" id="mapLoadingOverlay" style="display:none;">
+              <div class="map-loading-box">Carregando mapa…</div>
+            </div>
             <div class="legend" id="legend"></div>
             <button type="button" class="legend-show-btn" id="legendShowBtn" style="display:none;">Mostrar legenda</button>
             <div class="tile-notice" id="tileNotice" style="display:none;">
@@ -3747,6 +3758,8 @@
     const secondaryNames = secondaryIdxs.map(i => def.variables[i] && def.variables[i].name).filter(Boolean);
 
     statusEl.textContent = 'Carregando dados…';
+    document.getElementById('mapLoadingOverlay').style.display = 'flex';
+    document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Carregando gráficos…</div>';
     try{
       let data;
       let usedOfflineCache = false;
@@ -3903,7 +3916,9 @@
       statusEl.textContent = matchedCount + ' de ' + placemarkLayers.length + ' talhão(ões) com dado' + periodLabel + '.' + (usedOfflineCache ? ' (sem conexão — dado salvo localmente)' : '');
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
+      document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Não foi possível carregar os gráficos.</div>';
     }
+    document.getElementById('mapLoadingOverlay').style.display = 'none';
   });
 
   // ================= PERIMETERS (Registrar imagem — Supabase) =================
