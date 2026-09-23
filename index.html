@@ -1754,6 +1754,22 @@
   renderNavState();
 
   // ---------- helpers ----------
+  // Supabase caps a single request at 1000 rows — with a wide period and
+  // many talhões that limit can be hit easily, silently dropping older rows
+  // and skewing an average toward whatever happened to fit. This pages
+  // through everything so nothing gets left out.
+  async function fetchAllRows(buildQuery){
+    const pageSize = 1000;
+    let all = [], offset = 0;
+    while(true){
+      const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
+      if(error) throw error;
+      all = all.concat(data || []);
+      if(!data || data.length < pageSize) break;
+      offset += pageSize;
+    }
+    return all;
+  }
   function normalize(s){
     return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
   }
@@ -3441,11 +3457,12 @@
     if(!mapId){ availableDatesCache = []; populateMapaYearSelect(); return; }
     const activeFarm = farms.find(f => f.name === document.getElementById('farmFilter').value);
     try{
-      let query = sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId);
-      if(activeFarm) query = query.eq('farm_id', activeFarm.id);
-      const { data, error } = await query;
-      if(error) throw error;
-      availableDatesCache = Array.from(new Set((data || []).map(r => r.sample_date))).sort();
+      const rows = await fetchAllRows(() => {
+        let q = sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId);
+        if(activeFarm) q = q.eq('farm_id', activeFarm.id);
+        return q;
+      });
+      availableDatesCache = Array.from(new Set(rows.map(r => r.sample_date))).sort();
     }catch(err){
       availableDatesCache = [];
     }
@@ -3682,12 +3699,12 @@
       let usedOfflineCache = false;
       const idbKey = 'categoryData_' + currentCategory + '_' + defId;
       try{
-        let query = sb.from('category_data').select('*').eq('category', currentCategory).eq('map_definition_id', defId);
-        if(startDate) query = query.gte('sample_date', startDate);
-        if(endDate) query = query.lte('sample_date', endDate);
-        const res = await query.order('sample_date', { ascending: false });
-        if(res.error) throw res.error;
-        data = res.data;
+        data = await fetchAllRows(() => {
+          let query = sb.from('category_data').select('*').eq('category', currentCategory).eq('map_definition_id', defId);
+          if(startDate) query = query.gte('sample_date', startDate);
+          if(endDate) query = query.lte('sample_date', endDate);
+          return query.order('sample_date', { ascending: false });
+        });
         idbSet(idbKey, data);
       }catch(networkErr){
         const cached = await idbGet(idbKey);
