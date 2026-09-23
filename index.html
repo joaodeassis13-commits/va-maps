@@ -509,7 +509,7 @@
   .locate-control:hover{ color: #fff; }
   .locate-control.active{ color: #4A90D9; border-color: #4A90D9 !important; }
   .geo-arrow-wrap{ background:none !important; border:none !important; }
-  .talhao-label-icon{ background:none !important; border:none !important; pointer-events:none; transform: translate(-50%, -50%); }
+  .talhao-label-icon{ background:none !important; border:none !important; pointer-events:none; }
   .geo-arrow{ width:22px; height:22px; transition: transform 0.15s linear; filter: drop-shadow(0 0 2px rgba(0,0,0,0.5)); }
   .date-control select{ width: 175px; font-size:12px; padding:5px 6px; }
 
@@ -1171,7 +1171,7 @@
       const parts = [];
       if(showTalhaoNames) parts.push(escapeHtml(layer.featureName));
       if(showTalhaoAreas && Number.isFinite(layer.areaHectares)) parts.push(Math.round(layer.areaHectares) + ' ha');
-      const html = '<div style="font-size:' + sharedFontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
+      const html = '<div style="transform:translate(-50%,-50%); font-size:' + sharedFontSize.toFixed(1) + 'px; font-weight:600; color:' + textColor +
         '; text-shadow:0 0 3px ' + outline + ', 0 0 3px ' + outline + ', 0 0 3px ' + outline +
         '; text-align:center; white-space:nowrap; line-height:1.15;">' + parts.join('<br>') + '</div>';
       const icon = L.divIcon({ className: 'talhao-label-icon', html, iconSize: null });
