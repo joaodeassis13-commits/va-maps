@@ -3057,7 +3057,7 @@
     // now (so dragging the map/charts resizer makes them bigger too) —
     // only a chart with more categories than fit gets a larger fixed width
     // plus its own horizontal scrollbar.
-    const CHART_HEIGHT = 320;
+    const CHART_HEIGHT = 280;
     const availableWidth = Math.max(200, container.clientWidth - 32); // minus the panel's own padding
     container.innerHTML = computed.map(({ c, data }, i) => {
       const n = Math.max(1, data.labels.length);
@@ -3134,7 +3134,9 @@
             borderColor: color, pointBackgroundColor: color,
             fill: (isTimeline || c.chart_type === 'linha') ? false : true,
             tension: isTimeline ? 0.2 : 0,
-            datalabels: isStacked ? { display: false } : { formatter: (v) => formatNumBR(v, decimals) }
+            datalabels: isStacked
+              ? { color: '#fff', anchor: 'center', align: 'center', formatter: (v) => v > 0 ? formatNumBR(v, decimals) : '' }
+              : { formatter: (v) => formatNumBR(v, decimals) }
           };
         });
       }
@@ -3448,6 +3450,28 @@
       availableDatesCache = [];
     }
     populateMapaYearSelect();
+    defaultToMostRecentDate();
+  }
+  // As soon as dates are available and none is chosen yet, pre-select the
+  // most recent one (instead of leaving Ano/Mês/Período on "Todos") — the
+  // person can then navigate from there with "Data anterior"/"seguinte" or
+  // by picking a different one. Never overrides an existing selection —
+  // including one being deliberately restored (blank or not) when switching
+  // back to a tab, since that assignment always happens right after this.
+  function defaultToMostRecentDate(){
+    if(availableDatesCache.length === 0) return;
+    const yearSel = document.getElementById('mapCtrlYearSelect');
+    const monthSel = document.getElementById('mapCtrlMonthSelect');
+    const startSel = document.getElementById('mapCtrlStartDateSelect');
+    const endSel = document.getElementById('mapCtrlEndDateSelect');
+    if(yearSel.value || monthSel.value || startSel.value || endSel.value) return;
+    const mostRecent = availableDatesCache[availableDatesCache.length - 1];
+    yearSel.value = mostRecent.slice(0,4);
+    populateMapaMonthSelect();
+    monthSel.value = mostRecent.slice(5,7);
+    populateMapaPeriodSelects();
+    startSel.value = mostRecent;
+    endSel.value = mostRecent;
   }
   const MONTH_NAMES = { '01':'Janeiro','02':'Fevereiro','03':'Março','04':'Abril','05':'Maio','06':'Junho','07':'Julho','08':'Agosto','09':'Setembro','10':'Outubro','11':'Novembro','12':'Dezembro' };
 
