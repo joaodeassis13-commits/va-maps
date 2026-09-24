@@ -3854,8 +3854,12 @@
     const secondaryNames = secondaryIdxs.map(i => def.variables[i] && def.variables[i].name).filter(Boolean);
 
     statusEl.textContent = 'Carregando dados…';
-    document.getElementById('mapLoadingOverlay').style.display = 'flex';
-    document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Carregando gráficos…</div>';
+    // Only actually show the "carregando" overlays if this takes more than
+    // 3s — a quick load (nearby dates, cached data) shouldn't flash them.
+    const slowLoadTimer = setTimeout(() => {
+      document.getElementById('mapLoadingOverlay').style.display = 'flex';
+      document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Carregando gráficos…</div>';
+    }, 3000);
 
     try{
       let data;
@@ -4037,6 +4041,7 @@
       statusEl.textContent = 'Erro: ' + err.message;
       document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Não foi possível carregar os gráficos.</div>';
     }
+    clearTimeout(slowLoadTimer);
     document.getElementById('mapLoadingOverlay').style.display = 'none';
   });
 
