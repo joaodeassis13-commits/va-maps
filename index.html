@@ -2431,6 +2431,7 @@
   }
   function bindPopupGeneric(layer, def, primaryVarName, secondaryVarNames, rowValues, rowDate){
     function fmtVal(name){
+      if(name === '__talhao') return escapeHtml(layer.featureName);
       if(!rowValues || rowValues[name] === undefined || rowValues[name] === null || String(rowValues[name]).trim() === '') return '—';
       const varDef = def ? def.variables.find(v => v.name === name) : null;
       const formatted = formatVarValue(varDef, rowValues[name]);
@@ -3856,40 +3857,6 @@
     document.getElementById('mapLoadingOverlay').style.display = 'flex';
     document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Carregando gráficos…</div>';
 
-    // "Talhões" as Variável principal doesn't come from any uploaded data —
-    // it's the talhão's own identity, always available — so it skips the
-    // whole category_data fetch/averaging pipeline and just colors each
-    // visible talhão with its own deterministic color.
-    if(isBuiltinTalhao){
-      updateLayerVisibility();
-      const visibleNames = Array.from(new Set(
-        placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l)).map(l => l.featureName)
-      )).sort((a,b) => a.localeCompare(b));
-      varDef.categoryRows = visibleNames.map(name => ({
-        value: name, color: colorForTalhaoName(name), opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
-      }));
-
-      let matchedCount = 0;
-      placemarkLayers.forEach(layer => {
-        if(layer.isBoundaryPolygon){ layer.setStyle(BOUNDARY_STYLE); layer._paintGroup = null; layer.unbindPopup(); return; }
-        const idx = varDef.categoryRows.findIndex(r => r.value === layer.featureName);
-        if(idx !== -1){ layer.setStyle(matchedLayerStyle(varDef.categoryRows[idx])); layer._paintGroup = 'entry_' + idx; matchedCount++; }
-        layer.bindPopup('<div class="popup"><strong>' + escapeHtml(layer.featureName) + '</strong></div>');
-      });
-
-      const entries = varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor, borderWidth: r.borderWidth }));
-      categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
-      categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
-      renderLegendGeneric(entries, 0, 0, 'Talhões', null);
-      renderCategoryFilterBody();
-      updateLayerVisibility();
-      renderChartsForMap(defId, varDef, new Map(), []);
-      updateAllTalhaoLabels();
-      statusEl.textContent = matchedCount + ' talhão(ões) — uma cor própria para cada.';
-      document.getElementById('mapLoadingOverlay').style.display = 'none';
-      return;
-    }
-
     try{
       let data;
       let usedOfflineCache = false;
@@ -3958,9 +3925,12 @@
       // categories, or numeric with no valid min/max range — including cases
       // where the mode itself was guessed wrong on upload), detect it fresh
       // from the data that was actually fetched and self-correct.
-      const hasFaixas = varDef.mode === 'numeric'
+      // "Talhões" is never auto-corrected this way — its categories are
+      // always exactly the talhões that have data in this period, computed
+      // separately below.
+      const hasFaixas = isBuiltinTalhao || (varDef.mode === 'numeric'
         ? (varDef.intervalRows || []).some(r => Number.isFinite(r.min) || Number.isFinite(r.max))
-        : (varDef.categoryRows && varDef.categoryRows.length > 0);
+        : (varDef.categoryRows && varDef.categoryRows.length > 0));
       if(!hasFaixas){
         const foundValues = [];
         latestByTalhao.forEach(row => {
@@ -3995,13 +3965,30 @@
 
       const validRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) || Number.isFinite(r.max)) : null;
 
+      // "Talhões": one category per talhão that actually has data in this
+      // period — not every polygon that exists — each with its own
+      // deterministic color; talhões without data fall through to the
+      // normal "sem dado" styling below, same as any other variable.
+      if(isBuiltinTalhao){
+        const namesWithData = new Set();
+        placemarkLayers.forEach(layer => {
+          if(layer.isBoundaryPolygon) return;
+          const farm = farms.find(f => f.name === layer.farmName);
+          const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
+          if(latestByTalhao.has(key)) namesWithData.add(layer.featureName);
+        });
+        varDef.categoryRows = Array.from(namesWithData).sort((a,b) => a.localeCompare(b)).map(name => ({
+          value: name, color: colorForTalhaoName(name), opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
+        }));
+      }
+
       let matchedCount = 0, outOfRangeCount = 0; const unmatched = [];
       placemarkLayers.forEach(layer => {
         if(layer.isBoundaryPolygon){ layer.setStyle(BOUNDARY_STYLE); layer._paintGroup = null; layer.unbindPopup(); return; }
         const farm = farms.find(f => f.name === layer.farmName);
         const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
         const row = latestByTalhao.get(key);
-        const value = row ? row.values[varDef.name] : undefined;
+        const value = row ? (isBuiltinTalhao ? layer.featureName : row.values[varDef.name]) : undefined;
         if(!row || value === undefined || value === null || String(value).trim() === ''){
           layer.setStyle(noDataStyleGeneric(varDef.noData));
           layer._paintGroup = 'nodata';
