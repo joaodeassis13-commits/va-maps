@@ -3,13 +3,16 @@
 // Envios de planilha, criação de fazenda e criação de mapa continuam exigindo
 // internet (as chamadas ao Supabase nunca passam pelo cache deste arquivo).
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = 'mapas-tematicos-static-' + CACHE_VERSION;
 const TILE_CACHE = 'mapas-tematicos-tiles-' + CACHE_VERSION;
 
 const PRECACHE_URLS = [
   './',
   './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
