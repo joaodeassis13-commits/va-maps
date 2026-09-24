@@ -1797,7 +1797,24 @@
     const retiroFeatures = retiros.filter(r => r.farm_id === farm.id).flatMap(r => r.kml_features || []);
     return legacy.concat(retiroFeatures);
   }
-  function parseNumber(v){ return Number(String(v).trim().replace(',', '.')); }
+  // Handles plain decimals (5.2 or 5,2), currency-formatted values Excel
+  // shows as text (R$ 1.234,56), and thousands-separated numbers — not just
+  // a bare comma-to-dot swap, since raw:false reading brings back whatever
+  // Excel actually displays, symbols and separators included.
+  function parseNumber(v){
+    let s = String(v == null ? '' : v).trim();
+    if(s === '') return NaN;
+    s = s.replace(/[^0-9,.\-]/g, '');
+    if(s === '' || s === '-') return NaN;
+    const hasComma = s.includes(','), hasDot = s.includes('.');
+    if(hasComma && hasDot){
+      if(s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if(hasComma){
+      s = s.replace(',', '.');
+    }
+    return Number(s);
+  }
   function formatNumBR(n, decimals){
     const d = Number.isFinite(decimals) ? decimals : 1;
     return n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -1828,11 +1845,12 @@
     });
     return bestIdx;
   }
-  function formatIntervalRange(r, decimals){
+  function formatIntervalRange(r, decimals, isCurrency){
+    const fmt = (n) => (isCurrency ? 'R$ ' : '') + formatNumBR(n, decimals);
     const hasMin = Number.isFinite(r.min), hasMax = Number.isFinite(r.max);
-    if(hasMin && hasMax) return formatNumBR(r.min, decimals) + ' - ' + formatNumBR(r.max, decimals);
-    if(hasMin) return 'Acima de ' + formatNumBR(r.min, decimals);
-    if(hasMax) return 'Abaixo de ' + formatNumBR(r.max, decimals);
+    if(hasMin && hasMax) return fmt(r.min) + ' - ' + fmt(r.max);
+    if(hasMin) return 'Acima de ' + fmt(r.min);
+    if(hasMax) return 'Abaixo de ' + fmt(r.max);
     return '';
   }
   // Formats a raw uploaded value the same way everywhere (popup, labels,
@@ -1843,7 +1861,7 @@
     if(rawValue === undefined || rawValue === null || String(rawValue).trim() === '') return null;
     if(varDef && varDef.mode === 'numeric'){
       const n = parseNumber(rawValue);
-      if(Number.isFinite(n)) return formatNumBR(n, varDef.decimals);
+      if(Number.isFinite(n)) return (varDef.isCurrency ? 'R$ ' : '') + formatNumBR(n, varDef.decimals);
     }
     return String(rawValue);
   }
@@ -3021,7 +3039,7 @@
     const numericIntervalRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) || Number.isFinite(r.max)) : null;
     const buckets = varDef.mode === 'numeric'
       ? numericIntervalRows.map(r => ({
-            label: (r.label && r.label.trim()) ? r.label.trim() : formatIntervalRange(r, varDef.decimals),
+            label: (r.label && r.label.trim()) ? r.label.trim() : formatIntervalRange(r, varDef.decimals, varDef.isCurrency),
             color: r.color, opacityPercent: r.opacityPercent
           }))
       : varDef.categoryRows.map(r => ({
@@ -3212,37 +3230,43 @@
         const respVarDef = mapDef ? mapDef.variables.find(v => v.name === series.key) : null;
         return respVarDef && Number.isFinite(respVarDef.decimals) ? respVarDef.decimals : 1;
       }
+      function isCurrencyFor(series){
+        if(c.calculation === 'contagem' || series.key === '__contagem__' || series.key === '__area_ha') return false;
+        if(isTimeline) return !!varDef.isCurrency;
+        const respVarDef = mapDef ? mapDef.variables.find(v => v.name === series.key) : null;
+        return !!(respVarDef && respVarDef.isCurrency);
+      }
+      function formatSeriesValue(series, v){
+        return (isCurrencyFor(series) ? 'R$ ' : '') + formatNumBR(v, decimalsFor(series));
+      }
 
       let datasets;
       if(isDonut){
         // A donut is a single ring — only the first response variable is
         // shown, colored per faixa/categoria like the map's own legend.
         const s = data.series[0];
-        const decimals = decimalsFor(s);
         datasets = [{
           label: s.label, data: s.values,
           backgroundColor: data.colors.map((hex, idx) => hexToRgba(hex, data.opacities[idx])),
           borderColor: data.colors,
-          datalabels: { color: '#fff', anchor: 'center', align: 'center', formatter: (v) => formatNumBR(v, decimals) }
+          datalabels: { color: '#fff', anchor: 'center', align: 'center', formatter: (v) => formatSeriesValue(s, v) }
         }];
       } else if(!isMultiSeries && !isTimeline){
         // A single response variable: color each bar/point by its own
         // faixa/categoria, same as the map's legend.
         const s = data.series[0];
-        const decimals = decimalsFor(s);
         datasets = [{
           label: s.label, data: s.values,
           backgroundColor: data.colors.map((hex, idx) => hexToRgba(hex, data.opacities[idx])),
           borderColor: data.colors, pointBackgroundColor: data.colors,
           fill: c.chart_type === 'linha' ? false : true,
-          datalabels: { formatter: (v) => formatNumBR(v, decimals) }
+          datalabels: { formatter: (v) => formatSeriesValue(s, v) }
         }];
       } else {
         // A timeline, or more than one response variable selected: one flat
         // color per series instead, with a legend to tell them apart.
         datasets = data.series.map((s, idx) => {
           const color = MULTI_SERIES_PALETTE[idx % MULTI_SERIES_PALETTE.length];
-          const decimals = decimalsFor(s);
           return {
             label: s.label, data: s.values,
             backgroundColor: hexToRgba(color, isTimeline ? 0.15 : 0.85),
@@ -3250,8 +3274,8 @@
             fill: (isTimeline || c.chart_type === 'linha') ? false : true,
             tension: isTimeline ? 0.2 : 0,
             datalabels: isStacked
-              ? { color: '#fff', anchor: 'center', align: 'center', formatter: (v) => v > 0 ? formatNumBR(v, decimals) : '' }
-              : { formatter: (v) => formatNumBR(v, decimals) }
+              ? { color: '#fff', anchor: 'center', align: 'center', formatter: (v) => v > 0 ? formatSeriesValue(s, v) : '' }
+              : { formatter: (v) => formatSeriesValue(s, v) }
           };
         });
       }
@@ -3480,6 +3504,15 @@
     });
     return Math.min(maxDecimals, 4);
   }
+  // A column is treated as currency (shows "R$" everywhere it's displayed)
+  // when the spreadsheet itself shows the symbol — i.e. the cell was
+  // formatted as currency in Excel.
+  function detectIsCurrencyColumn(colName){
+    return categoryUploadRowsFormatted.some(r => {
+      const v = r[colName];
+      return v !== undefined && v !== null && /r\$/i.test(String(v));
+    });
+  }
   function distinctColumnValues(colName){
     const set = new Set();
     categoryUploadRowsFormatted.forEach(r => {
@@ -3505,6 +3538,7 @@
         name: col,
         mode: numeric ? 'numeric' : 'categorical',
         decimals: numeric ? detectDecimalsForColumn(col) : undefined,
+        isCurrency: numeric ? detectIsCurrencyColumn(col) : false,
         intervalRows: [],
         categoryRows: numeric ? [] : autoCategoryRowsFor(col),
         noData: newNoData()
@@ -3518,11 +3552,14 @@
         const rows = autoCategoryRowsFor(v.name);
         if(rows.length > 0){ v.categoryRows = rows; changed = true; }
       }
-      // Keep decimals current with the latest upload for this column, in case
-      // a newer spreadsheet uses more decimal places than the first one did.
+      // Keep decimals (and whether it's currency) current with the latest
+      // upload for this column, in case a newer spreadsheet differs from
+      // the first one.
       if(v.mode === 'numeric' && valueKeys.includes(v.name)){
         const detected = detectDecimalsForColumn(v.name);
         if(detected !== v.decimals){ v.decimals = detected; changed = true; }
+        const isCurrency = detectIsCurrencyColumn(v.name);
+        if(isCurrency !== !!v.isCurrency){ v.isCurrency = isCurrency; changed = true; }
       }
     });
 
@@ -3931,7 +3968,7 @@
 
       const entries = varDef.mode === 'numeric'
         ? validRows.map(r => {
-            const rangeStr = formatIntervalRange(r, varDef.decimals);
+            const rangeStr = formatIntervalRange(r, varDef.decimals, varDef.isCurrency);
             const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
             return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
           })
