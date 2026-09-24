@@ -1158,6 +1158,23 @@
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminance > 0.55 ? '#000000' : '#ffffff';
   }
+  // "Talhões" as a variable: one deterministic, distinct color per talhão
+  // name — auto-generated (not user-editable), since configuring a color
+  // by hand for every individual talhão wouldn't be practical.
+  function hslToHex(h, s, l){
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const toHex = x => Math.round(255 * x).toString(16).padStart(2, '0');
+    return '#' + toHex(f(0)) + toHex(f(8)) + toHex(f(4));
+  }
+  function colorForTalhaoName(name){
+    let hash = 0;
+    const s = String(name);
+    for(let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) | 0;
+    return hslToHex(Math.abs(hash) % 360, 55, 45);
+  }
   function updateAllTalhaoLabels(){
     // One shared font size for every visible label — based on the AVERAGE
     // on-screen size of the visible talhões — so a few very large polygons
@@ -3058,7 +3075,7 @@
       const farm = farms.find(f => f.name === layer.farmName);
       const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
       const row = latestByTalhao.get(key);
-      const primaryRaw = row ? row.values[varDef.name] : undefined;
+      const primaryRaw = resolveChartFieldValue(varDef.name, layer, row);
       if(primaryRaw === undefined || primaryRaw === null || String(primaryRaw).trim() === '') return;
       const bucketIdx = varDef.mode === 'numeric'
         ? findIntervalIdxWithSnap(numericIntervalRows, parseNumber(primaryRaw))
@@ -3698,7 +3715,9 @@
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const sel = document.getElementById('mapaVariableSelect');
-    sel.innerHTML = def ? def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join('') : '<option value="">—</option>';
+    sel.innerHTML = def
+      ? ('<option value="__talhao">Talhões</option>' + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
+      : '<option value="">—</option>';
     renderSecondaryVarOptions();
   }
   document.getElementById('mapaVariableSelect').addEventListener('change', renderSecondaryVarOptions);
@@ -3819,19 +3838,58 @@
   document.getElementById('renderMapaBtn').addEventListener('click', async () => {
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
-    const varIdx = Number(document.getElementById('mapaVariableSelect').value);
+    const rawVarVal = document.getElementById('mapaVariableSelect').value;
+    const isBuiltinTalhao = rawVarVal === '__talhao';
+    const varIdx = isBuiltinTalhao ? -1 : Number(rawVarVal);
     const secondaryIdxs = getSelectedSecondaryIdxs();
     const startDate = document.getElementById('mapCtrlStartDateSelect').value || null;
     const endDate = document.getElementById('mapCtrlEndDateSelect').value || null;
     const statusEl = document.getElementById('mapaStatus');
-    if(!def || !Number.isInteger(varIdx)){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
-    const varDef = def.variables[varIdx];
+    if(!def || (!isBuiltinTalhao && !Number.isInteger(varIdx))){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
+    const varDef = isBuiltinTalhao
+      ? { name: '__talhao', mode: 'categorical', categoryRows: [], noData: newNoData(), decimals: undefined, isCurrency: false }
+      : def.variables[varIdx];
     if(!varDef){ statusEl.textContent = 'Variável inválida.'; return; }
     const secondaryNames = secondaryIdxs.map(i => def.variables[i] && def.variables[i].name).filter(Boolean);
 
     statusEl.textContent = 'Carregando dados…';
     document.getElementById('mapLoadingOverlay').style.display = 'flex';
     document.getElementById('chartsPanel').innerHTML = '<div class="charts-placeholder">Carregando gráficos…</div>';
+
+    // "Talhões" as Variável principal doesn't come from any uploaded data —
+    // it's the talhão's own identity, always available — so it skips the
+    // whole category_data fetch/averaging pipeline and just colors each
+    // visible talhão with its own deterministic color.
+    if(isBuiltinTalhao){
+      updateLayerVisibility();
+      const visibleNames = Array.from(new Set(
+        placemarkLayers.filter(l => !l.isBoundaryPolygon && featureGroup.hasLayer(l)).map(l => l.featureName)
+      )).sort((a,b) => a.localeCompare(b));
+      varDef.categoryRows = visibleNames.map(name => ({
+        value: name, color: colorForTalhaoName(name), opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
+      }));
+
+      let matchedCount = 0;
+      placemarkLayers.forEach(layer => {
+        if(layer.isBoundaryPolygon){ layer.setStyle(BOUNDARY_STYLE); layer._paintGroup = null; layer.unbindPopup(); return; }
+        const idx = varDef.categoryRows.findIndex(r => r.value === layer.featureName);
+        if(idx !== -1){ layer.setStyle(matchedLayerStyle(varDef.categoryRows[idx])); layer._paintGroup = 'entry_' + idx; matchedCount++; }
+        layer.bindPopup('<div class="popup"><strong>' + escapeHtml(layer.featureName) + '</strong></div>');
+      });
+
+      const entries = varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor, borderWidth: r.borderWidth }));
+      categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
+      categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
+      renderLegendGeneric(entries, 0, 0, 'Talhões', null);
+      renderCategoryFilterBody();
+      updateLayerVisibility();
+      renderChartsForMap(defId, varDef, new Map(), []);
+      updateAllTalhaoLabels();
+      statusEl.textContent = matchedCount + ' talhão(ões) — uma cor própria para cada.';
+      document.getElementById('mapLoadingOverlay').style.display = 'none';
+      return;
+    }
+
     try{
       let data;
       let usedOfflineCache = false;
