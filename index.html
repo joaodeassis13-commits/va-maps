@@ -436,6 +436,7 @@
   }
   .mini-btn:hover{ border-color: var(--accent); color: var(--accent); }
   .mini-btn.active{ background: var(--accent); color: #fff; border-color: var(--accent); }
+  .mini-btn:disabled{ opacity:0.35; cursor:default; pointer-events:none; }
 
   .shape-row{ display:flex; flex-wrap:wrap; gap:6px; margin: 6px 0 2px; }
   .shape-row .mini-btn{ flex:1 1 40%; text-align:center; }
@@ -2633,9 +2634,12 @@
     const listEl = document.getElementById('mapDefVariablesList');
     listEl.innerHTML = currentMapDef.variables.map((v,i) => {
       const collapsed = !!v._editorCollapsed;
+      const isFirst = i === 0, isLast = i === currentMapDef.variables.length - 1;
       return '<div class="section" data-var-index="' + i + '" style="flex:1 1 100%;">' +
         '<div class="section-head"><h2 style="font-size:13px;">Variável ' + (i+1) + '</h2>' +
-          '<button type="button" class="mini-btn var-toggle" style="margin-left:auto;">' + (collapsed ? 'Mostrar' : 'Ocultar') + '</button>' +
+          '<button type="button" class="mini-btn var-move-up" style="margin-left:auto;"' + (isFirst ? ' disabled' : '') + ' title="Mover para cima">↑</button>' +
+          '<button type="button" class="mini-btn var-move-down"' + (isLast ? ' disabled' : '') + ' title="Mover para baixo">↓</button>' +
+          '<button type="button" class="mini-btn var-toggle">' + (collapsed ? 'Mostrar' : 'Ocultar') + '</button>' +
           '<button type="button" class="mini-btn danger var-remove">Remover</button></div>' +
         '<label class="field-label">Nome da variável (igual à coluna na planilha)</label>' +
         '<input type="text" class="var-name" value="' + escapeHtml(v.name) + '" placeholder="ex.: Altura (cm)">' +
@@ -2653,6 +2657,16 @@
     currentMapDef.variables[idx].name = e.target.value;
   });
   document.getElementById('mapDefVariablesList').addEventListener('click', (e) => {
+    if(e.target.classList.contains('var-move-up') || e.target.classList.contains('var-move-down')){
+      if(e.target.disabled) return;
+      const idx = Number(e.target.closest('[data-var-index]').dataset.varIndex);
+      const swapIdx = idx + (e.target.classList.contains('var-move-up') ? -1 : 1);
+      if(swapIdx < 0 || swapIdx >= currentMapDef.variables.length) return;
+      const arr = currentMapDef.variables;
+      [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+      renderMapDefForm();
+      return;
+    }
     if(e.target.classList.contains('var-toggle')){
       const section = e.target.closest('[data-var-index]');
       const idx = Number(section.dataset.varIndex);
@@ -2779,7 +2793,7 @@
 
   async function loadChartDefinitions(){
     try{
-      const { data, error } = await sb.from('chart_definitions').select('*').order('created_at');
+      const { data, error } = await sb.from('chart_definitions').select('*').order('map_definition_id').order('sort_order', { nullsFirst: true }).order('created_at');
       if(error) throw error;
       chartDefinitions = data || [];
       renderChartDefinitionsList();
@@ -2802,10 +2816,15 @@
       const desc = (c.chart_type === 'linha_tempo'
         ? CALC_LABELS[c.calculation] + ' da variável principal do mapa, ao longo das datas do período'
         : CALC_LABELS[c.calculation] + (responseLabel ? (' de ' + responseLabel) : '') + ' por faixa/categoria da variável principal do mapa') + weightSuffix;
+      const siblings = chartDefinitions.filter(x => x.map_definition_id === c.map_definition_id);
+      const posInMap = siblings.findIndex(x => x.id === c.id);
+      const isFirst = posInMap === 0, isLast = posInMap === siblings.length - 1;
       return '<div class="saved-item" data-id="' + c.id + '">' +
         '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(mapLabel) + ' — ' + CHART_TYPE_LABELS[c.chart_type] + '</div>' +
         '<div class="saved-item-date">' + escapeHtml(desc) + '</div></div>' +
         '<div class="saved-item-actions">' +
+          '<button type="button" class="mini-btn chartdef-move-up"' + (isFirst ? ' disabled' : '') + ' title="Mover para cima">↑</button>' +
+          '<button type="button" class="mini-btn chartdef-move-down"' + (isLast ? ' disabled' : '') + ' title="Mover para baixo">↓</button>' +
           '<button type="button" class="mini-btn chartdef-edit">Editar</button>' +
           '<button type="button" class="mini-btn danger chartdef-delete">×</button>' +
         '</div>' +
@@ -2817,6 +2836,21 @@
     const id = item.dataset.id;
     const def = chartDefinitions.find(c => String(c.id) === id);
     if(!def) return;
+    if(e.target.classList.contains('chartdef-move-up') || e.target.classList.contains('chartdef-move-down')){
+      if(e.target.disabled) return;
+      const direction = e.target.classList.contains('chartdef-move-up') ? -1 : 1;
+      const siblings = chartDefinitions.filter(x => x.map_definition_id === def.map_definition_id);
+      const idx = siblings.findIndex(x => x.id === def.id);
+      const other = siblings[idx + direction];
+      if(!other) return;
+      const myOrder = def.sort_order, otherOrder = other.sort_order;
+      try{
+        await sb.from('chart_definitions').update({ sort_order: otherOrder }).eq('id', def.id);
+        await sb.from('chart_definitions').update({ sort_order: myOrder }).eq('id', other.id);
+        await loadChartDefinitions();
+      }catch(err){ setStatus('warn', 'Não foi possível reordenar: ' + err.message); }
+      return;
+    }
     if(e.target.classList.contains('chartdef-edit')){
       currentChartDef = Object.assign({}, def);
       document.getElementById('chartDefFormTitle').textContent = 'Editar gráfico';
@@ -2957,6 +2991,7 @@
     if(calculation === 'media_ponderada' && !weightVariable){ statusEl.textContent = 'Escolha pelo que a média ponderada deve pesar (área ou uma variável).'; return; }
     try{
       const payload = { map_definition_id: mapId, chart_type: chartType, primary_variable: null, response_variables: (chartType === 'linha_tempo' || calculation === 'contagem') ? null : responseVars, calculation, weight_variable: calculation === 'media_ponderada' ? weightVariable : null };
+      if(!currentChartDef.id) payload.sort_order = Date.now();
       let result;
       if(currentChartDef.id) result = await sb.from('chart_definitions').update(payload).eq('id', currentChartDef.id).select().single();
       else result = await sb.from('chart_definitions').insert(payload).select().single();
@@ -3230,7 +3265,7 @@
           maintainAspectRatio: false,
           layout: { padding: { top: 18 } },
           plugins: {
-            legend: { display: isDonut || isMultiSeries, labels: { boxWidth: 10, font: { size: 10 } } },
+            legend: { display: true, labels: { boxWidth: 10, font: { size: 10 } } },
             title: { display: true, text: title, font: { size: 11 } },
             datalabels: {
               color: isDonut ? '#fff' : '#232520',
