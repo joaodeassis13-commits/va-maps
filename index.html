@@ -1297,7 +1297,7 @@
         '<button type="button" class="mini-btn" id="mapCtrlNextDateBtn" style="flex:1;">Data seguinte →</button>' +
       '</div>' +
       '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="mapCtrlDateNavStatus"></div>' +
-      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = dado mais recente. Mesma data nos dois = um dia só.</div>';
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = média de todo o histórico. Mesma data nos dois = um dia só. Datas diferentes = média do período.</div>';
     makeCollapsible(div, 'Data', body);
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
@@ -1866,7 +1866,7 @@
     if(startDate && endDate) return startDate === endDate ? formatDateBR(startDate) : (formatDateBR(startDate) + ' a ' + formatDateBR(endDate));
     if(endDate) return 'até ' + formatDateBR(endDate);
     if(startDate) return 'a partir de ' + formatDateBR(startDate);
-    return 'mais recente';
+    return 'todo o histórico';
   }
   function latLngsToPlain(ll){ if(Array.isArray(ll)) return ll.map(latLngsToPlain); return [ll.lat, ll.lng]; }
 
@@ -3789,7 +3789,9 @@
       function computeEffectiveRow(rows){
         if(rows.length === 0) return null;
         if(singleDay) return rows.find(r => r.sample_date === startDate) || null;
-        if(!startDate && !endDate) return rows.reduce((a,b) => (a.sample_date > b.sample_date ? a : b));
+        // Not a single exact day — average every date that was fetched,
+        // whether that's a specific range or (when início/fim are both
+        // blank) the talhão's entire history.
         const allKeys = new Set();
         rows.forEach(r => Object.keys(r.values || {}).forEach(k => allKeys.add(k)));
         const values = {};
@@ -3909,7 +3911,7 @@
       renderCategoryFilterBody();
       updateLayerVisibility();
 
-      const periodLabel = ' (' + (singleDay ? ('em ' + formatDateBR(startDate)) : formatDateRangeBR(startDate, endDate)) + (!singleDay && (startDate || endDate) && startDate !== endDate ? ' — média do período' : '') + ')';
+      const periodLabel = ' (' + (singleDay ? ('em ' + formatDateBR(startDate)) : (formatDateRangeBR(startDate, endDate) + ' — média')) + ')';
       renderChartsForMap(defId, varDef, latestByTalhao, data);
       updateAllTalhaoLabels();
 
