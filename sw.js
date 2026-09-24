@@ -3,7 +3,7 @@
 // Envios de planilha, criação de fazenda e criação de mapa continuam exigindo
 // internet (as chamadas ao Supabase nunca passam pelo cache deste arquivo).
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const STATIC_CACHE = 'mapas-tematicos-static-' + CACHE_VERSION;
 const TILE_CACHE = 'mapas-tematicos-tiles-' + CACHE_VERSION;
 
