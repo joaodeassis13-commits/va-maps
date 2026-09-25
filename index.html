@@ -508,9 +508,9 @@
     padding: 6px;
   }
   .date-control.is-collapsed{ width:50px !important; }
-  .date-filter-box{ width:220px; }
-  .satellite-box{ width:140px; }
-  .category-box{ width:140px; }
+  .date-filter-box{ width:245px; }
+  .satellite-box{ width:160px; }
+  .category-box{ width:160px; }
   .collapsible-header{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
     font-size:11px; font-weight:600; color: var(--text-muted);
@@ -1368,7 +1368,7 @@
     categoryFilterBodyEl = document.createElement('div');
     categoryFilterBodyEl.className = 'cat-filter-body';
     categoryFilterBodyEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Gere um mapa para filtrar.</div>';
-    makeCollapsible(div, 'Categoria/Faixas', categoryFilterBodyEl);
+    makeCollapsible(div, 'Faixas', categoryFilterBodyEl);
     categoryFilterBodyEl.addEventListener('change', (e) => {
       if(!e.target.classList.contains('cat-filter-check')) return;
       const key = e.target.dataset.key;
