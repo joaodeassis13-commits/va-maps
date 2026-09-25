@@ -1874,7 +1874,7 @@
       renderNavState();
       if(goingToCategory){
         await populateMapaSelectForCategory();
-        if(categoryChanged) await restoreCategoryMapState(currentCategory);
+        await restoreCategoryMapState(currentCategory);
         if(currentSubtab === 'upload') loadUploadsList();
       }
       if(currentNav === 'graficos') populateChartDefMapSelect();
