@@ -4443,13 +4443,27 @@
       const validRows = varDef.mode === 'numeric' ? varDef.intervalRows.filter(r => Number.isFinite(r.min) || Number.isFinite(r.max)) : null;
 
       // "Talhões": one category per talhão that actually has data in this
-      // period — not every polygon that exists — each with its own
-      // deterministic color; talhões without data fall through to the
-      // normal "sem dado" styling below, same as any other variable.
+      // period AND passes the current Departamento/Retiro filters — not
+      // every polygon that exists — each with its own deterministic color;
+      // talhões without data (or filtered out) fall through to the normal
+      // "sem dado" styling below, same as any other variable.
       if(isBuiltinTalhao){
+        const farmSelected = document.getElementById('farmFilter').value;
+        const selectedDeps = getSelectedDepartamentos();
+        const selectedRetiroIds = getSelectedRetiroIds();
+        const selectedRetiroKeys = new Set(selectedRetiroIds.map(id => {
+          const r = retiros.find(rr => String(rr.id) === id);
+          if(!r) return null;
+          const farm = farms.find(f => f.id === r.farm_id);
+          return (farm ? farm.name : '') + '|||' + r.name;
+        }).filter(Boolean));
         const namesWithData = new Set();
         placemarkLayers.forEach(layer => {
           if(layer.isBoundaryPolygon) return;
+          const farmOk = !farmSelected || layer.farmName === farmSelected;
+          const depOk = selectedDeps.length === 0 || selectedDeps.includes(layer.departamento);
+          const retiroOk = selectedRetiroIds.length === 0 || selectedRetiroKeys.has(layer.farmName + '|||' + layer.retiroName);
+          if(!farmOk || !depOk || !retiroOk) return;
           const farm = farms.find(f => f.name === layer.farmName);
           const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
           if(latestByTalhao.has(key)) namesWithData.add(layer.featureName);
