@@ -3026,10 +3026,35 @@
   document.getElementById('chartDefResponseVarPanel').addEventListener('change', (e) => {
     if(e.target.classList.contains('chartdef-response-checkbox')) updateChartDefResponseVarTriggerLabel();
   });
+  // A "position:fixed" panel escapes any scrollable/clipped ancestor (like
+  // .control-panel's own overflow-y:auto), instead of being cut off by it.
+  function openFloatingMultiSelectPanel(trigger, panel){
+    const rect = trigger.getBoundingClientRect();
+    panel.style.position = 'fixed';
+    panel.style.left = rect.left + 'px';
+    panel.style.top = (rect.bottom + 4) + 'px';
+    panel.style.width = rect.width + 'px';
+    panel.style.right = 'auto';
+    panel.style.margin = '0';
+    panel.style.zIndex = '2500';
+    panel.style.display = 'block';
+  }
+  function closeAllFloatingMultiSelectPanels(){
+    ['chartDefResponseVarPanel','secondaryVarPanel','departamentoPanel','retiroPanel'].forEach(id => {
+      const p = document.getElementById(id);
+      if(p) p.style.display = 'none';
+    });
+  }
+  // Fixed panels don't track an ancestor's internal scroll, so close them on
+  // any scroll/resize rather than let them drift out of place.
+  document.getElementById('controlPanel') && document.getElementById('controlPanel').addEventListener('scroll', closeAllFloatingMultiSelectPanels);
+  window.addEventListener('resize', closeAllFloatingMultiSelectPanels);
+
   document.getElementById('chartDefResponseVarTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
     const panel = document.getElementById('chartDefResponseVarPanel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
   });
   document.addEventListener('click', (e) => {
     const wrap = document.getElementById('chartDefResponseVarMultiSelect');
@@ -3830,7 +3855,8 @@
   document.getElementById('secondaryVarTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
     const panel = document.getElementById('secondaryVarPanel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
   });
 
   // ---------- Departamento / Retiro filters (multi-select, same pattern) ----------
@@ -3862,7 +3888,8 @@
   document.getElementById('departamentoTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
     const panel = document.getElementById('departamentoPanel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
   });
 
   function getSelectedRetiroIds(){
@@ -3899,7 +3926,8 @@
   document.getElementById('retiroTrigger').addEventListener('click', (e) => {
     e.stopPropagation();
     const panel = document.getElementById('retiroPanel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
   });
 
   document.addEventListener('click', (e) => {
