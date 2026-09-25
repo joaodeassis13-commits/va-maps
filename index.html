@@ -4469,8 +4469,12 @@
           const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
           if(latestByTalhao.has(key)) namesWithData.add(layer.featureName);
         });
+        // All talhões paint with the same single color (the app's reference
+        // green, matching the first series color used in multi-variable
+        // charts) — "Talhões" here just marks which ones have data, not a
+        // distinct identity color per talhão.
         varDef.categoryRows = Array.from(namesWithData).sort((a,b) => a.localeCompare(b)).map(name => ({
-          value: name, color: colorForTalhaoName(name), opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
+          value: name, color: '#166336', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1
         }));
       }
 
