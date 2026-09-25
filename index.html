@@ -506,8 +506,11 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 6px;
-    width: 400px;
   }
+  .date-control.is-collapsed{ width:50px !important; }
+  .date-filter-box{ width:220px; }
+  .satellite-box{ width:140px; }
+  .category-box{ width:140px; }
   .collapsible-header{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
     font-size:11px; font-weight:600; color: var(--text-muted);
@@ -1329,17 +1332,19 @@
       header.style.display = 'none';
       bodyEl.style.display = 'none';
       reopenBtn.style.display = 'block';
+      container.classList.add('is-collapsed');
     });
     reopenBtn.addEventListener('click', () => {
       header.style.display = 'flex';
       bodyEl.style.display = 'block';
       reopenBtn.style.display = 'none';
+      container.classList.remove('is-collapsed');
     });
   }
 
   const satelliteDateControl = L.control({ position: 'topright' });
   satelliteDateControl.onAdd = function(){
-    const div = L.DomUtil.create('div', 'leaflet-bar date-control');
+    const div = L.DomUtil.create('div', 'leaflet-bar date-control satellite-box');
     const body = document.createElement('div');
     body.innerHTML = '<select id="waybackSelect"><option value="">Mais recente</option></select>';
     makeCollapsible(div, 'Satélite', body);
@@ -1359,7 +1364,7 @@
   let categoryFilterBodyEl = null;
   const categoryFilterControl = L.control({ position: 'topright' });
   categoryFilterControl.onAdd = function(){
-    const div = L.DomUtil.create('div', 'leaflet-bar date-control');
+    const div = L.DomUtil.create('div', 'leaflet-bar date-control category-box');
     categoryFilterBodyEl = document.createElement('div');
     categoryFilterBodyEl.className = 'cat-filter-body';
     categoryFilterBodyEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Gere um mapa para filtrar.</div>';
@@ -1382,7 +1387,7 @@
   // itself — lets the user change the date without leaving the map.
   const dateFilterControl = L.control({ position: 'topright' });
   dateFilterControl.onAdd = function(){
-    const div = L.DomUtil.create('div', 'leaflet-bar date-control');
+    const div = L.DomUtil.create('div', 'leaflet-bar date-control date-filter-box');
     const body = document.createElement('div');
     body.innerHTML =
       '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Ano</label>' +
