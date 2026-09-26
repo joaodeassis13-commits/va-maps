@@ -1186,6 +1186,70 @@
 
   const SENTINEL_INSTANCE_ID = 'de831698-5873-43f7-b458-c346511f06c3';
   const SENTINEL_NDVI_LAYER = 'NDVI';
+
+  // ---------- Sentinel Hub / Copernicus Data Space Ecosystem: OAuth2 ----------
+  // The CDSE WMS endpoint (sh.dataspace.copernicus.eu) requires a Bearer
+  // token on every request now — a plain <img src="..."> WMS tile request
+  // (Leaflet's default) has no way to carry that header and gets rejected,
+  // which is what showed up as a blank/dark NDVI layer. Tokens last about an
+  // hour; this caches one and refreshes shortly before it expires.
+  const SENTINEL_CLIENT_ID = 'sh-84392213-2cc6-4705-a027-9cf2ec6bf35b';
+  const SENTINEL_CLIENT_SECRET = 'W0ox7J6RvQi2Zyg3ecTNS3y8h8zVCwdB';
+  const SENTINEL_TOKEN_URL = 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
+  let sentinelTokenCache = { token: null, expiresAt: 0 };
+  let sentinelTokenPromise = null;
+  async function getSentinelToken(){
+    if(sentinelTokenCache.token && Date.now() < sentinelTokenCache.expiresAt - 60000) return sentinelTokenCache.token;
+    if(sentinelTokenPromise) return sentinelTokenPromise; // avoid firing many token requests at once for the same batch of tiles
+    sentinelTokenPromise = (async () => {
+      const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: SENTINEL_CLIENT_ID,
+        client_secret: SENTINEL_CLIENT_SECRET
+      });
+      const resp = await fetch(SENTINEL_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+      if(!resp.ok) throw new Error('Falha ao autenticar no Sentinel Hub (HTTP ' + resp.status + ')');
+      const data = await resp.json();
+      sentinelTokenCache = { token: data.access_token, expiresAt: Date.now() + (data.expires_in * 1000) };
+      return sentinelTokenCache.token;
+    })();
+    try{ return await sentinelTokenPromise; }
+    finally{ sentinelTokenPromise = null; }
+  }
+  // A WMS tile layer whose tiles are fetched with fetch()+Authorization
+  // header (converted to a blob URL) instead of Leaflet's default plain
+  // <img src="...">, which can't carry the required Bearer token.
+  const AuthenticatedWMSLayer = L.TileLayer.WMS.extend({
+    createTile: function(coords, done){
+      const tile = document.createElement('img');
+      tile.alt = '';
+      const url = this.getTileUrl(coords);
+      getSentinelToken()
+        .then(token => fetch(url, { headers: { Authorization: 'Bearer ' + token } }))
+        .then(resp => { if(!resp.ok) throw new Error('HTTP ' + resp.status); return resp.blob(); })
+        .then(blob => {
+          const objectUrl = URL.createObjectURL(blob);
+          tile._sentinelObjectUrl = objectUrl;
+          tile.onload = () => done(null, tile);
+          tile.onerror = () => done(new Error('Falha ao carregar o tile do Sentinel Hub'), tile);
+          tile.src = objectUrl;
+        })
+        .catch(err => done(err, tile));
+      return tile;
+    },
+    _removeTile: function(key){
+      const tileObj = this._tiles[key];
+      if(tileObj && tileObj.el && tileObj.el._sentinelObjectUrl){
+        URL.revokeObjectURL(tileObj.el._sentinelObjectUrl);
+      }
+      L.TileLayer.WMS.prototype._removeTile.call(this, key);
+    }
+  });
+
   function defaultSentinelEndDate(){
     const d = new Date(); d.setDate(d.getDate() - 3); return d.toISOString().slice(0, 10);
   }
@@ -1194,7 +1258,7 @@
     const start = new Date(end); start.setDate(start.getDate() - 15);
     return start.toISOString().slice(0, 10) + '/' + endDateStr;
   }
-  const ndviSentinel = L.tileLayer.wms('https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID, {
+  const ndviSentinel = new AuthenticatedWMSLayer('https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID, {
     layers: SENTINEL_NDVI_LAYER, format: 'image/png', transparent: true, version: '1.3.0',
     time: sentinelTimeRange(defaultSentinelEndDate()), maxcc: 40,
     attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
@@ -4897,14 +4961,27 @@
     }
     return inside;
   }
-  function loadImageWithCORS(url){
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Falha ao carregar a imagem do Sentinel Hub (verifique a camada "NDVI_RAW" e sua conexão).'));
-      img.src = url;
-    });
+  async function loadImageWithCORS(url){
+    let resp;
+    try{
+      const token = await getSentinelToken();
+      resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    }catch(err){
+      throw new Error('Falha ao autenticar no Sentinel Hub: ' + err.message);
+    }
+    if(!resp.ok) throw new Error('Falha ao carregar a imagem do Sentinel Hub (HTTP ' + resp.status + ' — verifique a camada "NDVI_RAW" e sua conexão).');
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try{
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Falha ao interpretar a imagem do Sentinel Hub.'));
+        img.src = objectUrl;
+      });
+    }finally{
+      URL.revokeObjectURL(objectUrl);
+    }
   }
   async function computeTalhaoNDVI(ring, dateStr){
     const pts = ring.map(([lat, lng]) => L.CRS.EPSG3857.project(L.latLng(lat, lng)));
@@ -5205,8 +5282,25 @@
     showAuthOverlay(true);
     try{
       const { data } = await sb.auth.getSession();
-      if(data.session){ await onLoggedIn(data.session); }
+      if(data.session){ await onLoggedIn(data.session); return; }
     }catch(err){}
+
+    // Offline, Supabase's own session check can try to refresh the access
+    // token over the network, fail silently, and come back with no session
+    // at all — even though the person never logged out and a valid session
+    // is still sitting in local storage. Fall back to that cached session
+    // so the app still opens; any actual Supabase calls will fail
+    // gracefully offline anyway (the existing IndexedDB fallbacks already
+    // handle that throughout the app).
+    if(!navigator.onLine){
+      try{
+        const key = Object.keys(localStorage).find(k => /^sb-.*-auth-token$/.test(k));
+        if(key){
+          const stored = JSON.parse(localStorage.getItem(key));
+          if(stored && stored.user){ await onLoggedIn(stored); return; }
+        }
+      }catch(err){}
+    }
   })();
 
 })();
