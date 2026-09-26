@@ -999,10 +999,11 @@
           <div id="panel-forragem" style="display:none;">
             <div class="section">
               <div class="section-head"><h2>Camada do mapa</h2></div>
-              <div class="field-status" style="margin-bottom:6px;">O NDVI só fica disponível aqui, nessa aba — nas demais o mapa mostra sempre o satélite.</div>
+              <div class="field-status" style="margin-bottom:6px;">Essas camadas só ficam disponíveis aqui, nessa aba — nas demais o mapa mostra sempre o satélite.</div>
               <div class="shape-row">
                 <button type="button" class="mini-btn ndvi-layer-btn active" data-layer="satellite">Satélite</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndviSentinel">NDVI Sentinel-2</button>
+                <button type="button" class="mini-btn ndvi-layer-btn" data-layer="agricultureSentinel">Agriculture</button>
               </div>
             </div>
             <div class="section">
@@ -1255,6 +1256,15 @@
     attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
     maxZoom: 19, crossOrigin: true
   });
+  const agricultureSentinel = new AuthenticatedWMSLayer('https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID, {
+    layers: 'AGRICULTURE', format: 'image/png', transparent: true, version: '1.3.0',
+    time: sentinelTimeRange(defaultSentinelEndDate()), maxcc: 40,
+    attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
+    maxZoom: 19, crossOrigin: true
+  });
+  // Sentinel layers that use a date range and should transparent-outline
+  // the talhões so the imagery underneath stays fully visible.
+  const TIME_BASED_SENTINEL_LAYERS = [ndviSentinel, agricultureSentinel];
 
   const WhiteBackgroundLayer = L.GridLayer.extend({
     createTile: function(coords, done){
@@ -1581,12 +1591,12 @@
   let ndviDateControlDiv = null;
   function updateNdviDateControlVisibility(){
     if(!ndviDateControlDiv) return;
-    const isNdviActive = currentBaseLayer === ndviSentinel;
+    const isNdviActive = TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer);
     ndviDateControlDiv.style.display = isNdviActive ? 'block' : 'none';
   }
 
   function switchMapLayer(key){
-    const layers = { satellite: satellite, ndviSentinel: ndviSentinel };
+    const layers = { satellite: satellite, ndviSentinel: ndviSentinel, agricultureSentinel: agricultureSentinel };
     const chosen = layers[key];
     if(!chosen || chosen === currentBaseLayer) return;
     if(map.hasLayer(currentBaseLayer)) map.removeLayer(currentBaseLayer);
@@ -1594,6 +1604,17 @@
     currentBaseLayer = chosen;
     updateNdviDateControlVisibility();
     document.querySelectorAll('.ndvi-layer-btn').forEach(b => b.classList.toggle('active', b.dataset.layer === key));
+    if(TIME_BASED_SENTINEL_LAYERS.includes(chosen)){
+      // Force every talhão to a transparent, black-outline style so the
+      // actual satellite-derived colors stay fully visible underneath.
+      placemarkLayers.forEach(l => l.setStyle(NDVI_TALHAO_STYLE));
+    } else {
+      // Leaving one of these layers: restore whatever styling should
+      // normally be showing — re-run the last render if a map/variable is
+      // selected, else the plain default.
+      if(document.getElementById('mapaSelect').value) document.getElementById('renderMapaBtn').click();
+      else resetMapPainting();
+    }
   }
   document.querySelectorAll('.ndvi-layer-btn').forEach(btn => {
     btn.addEventListener('click', () => switchMapLayer(btn.dataset.layer));
@@ -1604,7 +1625,7 @@
     const div = L.DomUtil.create('div', 'leaflet-bar date-control');
     ndviDateControlDiv = div;
     div.innerHTML =
-      '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);">NDVI Sentinel (até) <input type="date" id="sentinelDateInput" value="' + defaultSentinelEndDate() + '" style="padding:3px 5px;font-size:11px;"></label>';
+      '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);">Imagem Sentinel (até) <input type="date" id="sentinelDateInput" value="' + defaultSentinelEndDate() + '" style="padding:3px 5px;font-size:11px;"></label>';
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
     return div;
@@ -1791,7 +1812,11 @@
 
 
   // ---------- locate-me control (top-left): device location as a blue arrow ----------
-  document.getElementById('sentinelDateInput').addEventListener('change', (e) => { if(e.target.value) ndviSentinel.setParams({ time: sentinelTimeRange(e.target.value) }); });
+  document.getElementById('sentinelDateInput').addEventListener('change', (e) => {
+    if(!e.target.value) return;
+    const timeRange = sentinelTimeRange(e.target.value);
+    TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: timeRange }));
+  });
 
   // ---------- side-nav + sub-tabs ----------
   const PAGE_TITLES = Object.assign({ fazendas: 'Fazendas', geracao: 'Geração de Mapas', graficos: 'Geração de gráficos' }, CATEGORY_LABELS);
@@ -1840,7 +1865,7 @@
 
   function resetMapPainting(){
     placemarkLayers.forEach(l => {
-      l.setStyle(l.isBoundaryPolygon ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45, dashArray: null });
+      l.setStyle(styleForNdvi(l.isBoundaryPolygon ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45, dashArray: null }));
       l._paintGroup = null;
       l.unbindPopup();
     });
@@ -2147,6 +2172,14 @@
     return (containedCount / others.length >= 0.8) ? candidate.feature : null;
   }
   const BOUNDARY_STYLE = { color: '#5A6B63', weight: 2, fill: false, interactive: false };
+  // When the NDVI Sentinel-2 layer is active, every talhão polygon (and the
+  // boundary) shows just a black outline with no fill, so the actual NDVI
+  // colors underneath stay fully visible — this overrides whatever
+  // thematic/faixa color a layer would otherwise get.
+  const NDVI_TALHAO_STYLE = { color: '#000000', weight: 2, fill: false };
+  function styleForNdvi(style){
+    return TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer) ? NDVI_TALHAO_STYLE : style;
+  }
 
   // Approximate geodesic area (equirectangular projection around the ring's
   // mean latitude) — accurate enough for farm-scale talhões, without needing
@@ -2206,7 +2239,7 @@
     const boundaryFeature = detectBoundaryFeature(features);
     features.forEach(f => {
       const isBoundary = f === boundaryFeature;
-      const layer = L.polygon(f.parts, isBoundary ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45 });
+      const layer = L.polygon(f.parts, styleForNdvi(isBoundary ? BOUNDARY_STYLE : { color: '#5A6B63', weight: 1, fillColor: '#3a4249', fillOpacity: 0.45 }));
       layer.featureName = f.name;
       layer.farmName = farmName;
       layer.retiroName = retiroName || null;
@@ -4541,13 +4574,13 @@
 
       let matchedCount = 0, outOfRangeCount = 0; const unmatched = [];
       placemarkLayers.forEach(layer => {
-        if(layer.isBoundaryPolygon){ layer.setStyle(BOUNDARY_STYLE); layer._paintGroup = null; layer.unbindPopup(); return; }
+        if(layer.isBoundaryPolygon){ layer.setStyle(styleForNdvi(BOUNDARY_STYLE)); layer._paintGroup = null; layer.unbindPopup(); return; }
         const farm = farms.find(f => f.name === layer.farmName);
         const key = (farm ? farm.id : '') + '|' + normalize(layer.featureName);
         const row = latestByTalhao.get(key);
         const value = row ? (isBuiltinTalhao ? layer.featureName : row.values[varDef.name]) : undefined;
         if(!row || value === undefined || value === null || String(value).trim() === ''){
-          layer.setStyle(noDataStyleGeneric(varDef.noData));
+          layer.setStyle(styleForNdvi(noDataStyleGeneric(varDef.noData)));
           layer._paintGroup = 'nodata';
           unmatched.push(layer.farmName + '/' + layer.featureName);
           bindPopupGeneric(layer, def, varDef.name, secondaryNames, row ? row.values : null, row ? row.sample_date : '');
@@ -4557,13 +4590,13 @@
         if(varDef.mode === 'numeric'){
           const v = parseNumber(value);
           const idx = findIntervalIdxWithSnap(validRows, v);
-          if(idx !== -1){ layer.setStyle(matchedLayerStyle(validRows[idx])); layer._paintGroup = 'entry_' + idx; }
-          else { outOfRangeCount++; layer.setStyle({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 }); layer._paintGroup = 'outofrange'; }
+          if(idx !== -1){ layer.setStyle(styleForNdvi(matchedLayerStyle(validRows[idx]))); layer._paintGroup = 'entry_' + idx; }
+          else { outOfRangeCount++; layer.setStyle(styleForNdvi({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 })); layer._paintGroup = 'outofrange'; }
         } else {
           const val = String(value).trim();
           const idx = varDef.categoryRows.findIndex(r => r.value === val);
-          if(idx !== -1){ layer.setStyle(matchedLayerStyle(varDef.categoryRows[idx])); layer._paintGroup = 'entry_' + idx; }
-          else { outOfRangeCount++; layer.setStyle({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 }); layer._paintGroup = 'outofrange'; }
+          if(idx !== -1){ layer.setStyle(styleForNdvi(matchedLayerStyle(varDef.categoryRows[idx]))); layer._paintGroup = 'entry_' + idx; }
+          else { outOfRangeCount++; layer.setStyle(styleForNdvi({ stroke: true, color: '#12181A', weight: 1, fill: true, fillColor: OUT_OF_RANGE_COLOR, fillOpacity: 0.85 })); layer._paintGroup = 'outofrange'; }
         }
         bindPopupGeneric(layer, def, varDef.name, secondaryNames, row.values, row.sample_date);
       });
