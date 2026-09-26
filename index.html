@@ -1188,32 +1188,23 @@
   const SENTINEL_NDVI_LAYER = 'NDVI';
 
   // ---------- Sentinel Hub / Copernicus Data Space Ecosystem: OAuth2 ----------
-  // The CDSE WMS endpoint (sh.dataspace.copernicus.eu) requires a Bearer
-  // token on every request now — a plain <img src="..."> WMS tile request
-  // (Leaflet's default) has no way to carry that header and gets rejected,
-  // which is what showed up as a blank/dark NDVI layer. Tokens last about an
-  // hour; this caches one and refreshes shortly before it expires.
-  const SENTINEL_CLIENT_ID = 'sh-84392213-2cc6-4705-a027-9cf2ec6bf35b';
-  const SENTINEL_CLIENT_SECRET = 'W0ox7J6RvQi2Zyg3ecTNS3y8h8zVCwdB';
-  const SENTINEL_TOKEN_URL = 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
+  // The CDSE identity server blocks direct browser requests for a token
+  // (CORS) — it only accepts server-to-server requests. The actual token
+  // fetch happens in the tiny serverless function at /api/sentinel-token
+  // (which holds the client secret as a server-side environment variable,
+  // never exposed here). Once we have the token, tiles are fetched directly
+  // from Sentinel Hub in the browser as before — that endpoint does allow
+  // browser requests. Tokens last about an hour; this caches one and
+  // refreshes shortly before it expires.
   let sentinelTokenCache = { token: null, expiresAt: 0 };
   let sentinelTokenPromise = null;
   async function getSentinelToken(){
     if(sentinelTokenCache.token && Date.now() < sentinelTokenCache.expiresAt - 60000) return sentinelTokenCache.token;
     if(sentinelTokenPromise) return sentinelTokenPromise; // avoid firing many token requests at once for the same batch of tiles
     sentinelTokenPromise = (async () => {
-      const body = new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: SENTINEL_CLIENT_ID,
-        client_secret: SENTINEL_CLIENT_SECRET
-      });
-      const resp = await fetch(SENTINEL_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString()
-      });
-      if(!resp.ok) throw new Error('Falha ao autenticar no Sentinel Hub (HTTP ' + resp.status + ')');
+      const resp = await fetch('/api/sentinel-token', { method: 'POST' });
       const data = await resp.json();
+      if(!resp.ok) throw new Error(data.error || ('Falha ao autenticar no Sentinel Hub (HTTP ' + resp.status + ')'));
       sentinelTokenCache = { token: data.access_token, expiresAt: Date.now() + (data.expires_in * 1000) };
       return sentinelTokenCache.token;
     })();
