@@ -5418,24 +5418,40 @@
     return 'brachiaria';
   }
   // Massa de forragem (kg MS/ha) — dispatches to the equation matching
-  // the talhão's registered species.
+  // the talhão's registered species. All are floored at 0: a linear
+  // equação fit to a limited NDVI range can (and does) go negative once
+  // NDVI drops below the fitted domain, which has no physical meaning as
+  // a mass — it means "outside the range this equation was built for",
+  // not "negative forage".
+  //
+  // Panicum note: the Cisneros Garcia et al. (2020) Dall'Olmo formula
+  // (218.6 × e^(7.52×R865×(1/R783−1/R740))) was verified against the
+  // original paper — no transcription error — but it's structurally
+  // unstable outside the exact hyperspectral-convoluted dataset it was
+  // fit on: it takes the difference of two reciprocals of near-equal
+  // reflectances and exponentiates the result, so tiny calibration
+  // differences between that dataset and real Sentinel Hub L2A pixels
+  // get amplified into wildly wrong (near-zero) outputs. Tested with
+  // plausible dense-canopy reflectances, it returned 20-100 kg/ha where
+  // real values should be in the thousands. Until a Panicum-specific
+  // equation survives contact with real Sentinel-2 data, Panicum falls
+  // back to the Bretas et al. (2021) formula (same as Braquiária/
+  // Andropogon) as a temporary substitute — not species-specific, but
+  // at least numerically sane.
   async function computeMassaForragemTalhao(ring, dateStr, especie){
     const group = classifySpeciesGroup(especie);
     if(group === 'humidicola'){
       // Díaz Giraldo et al. (2021), NDVI Sentinel-2A, R²=0,712
       const ndvi = await computeTalhaoNDVI(ring, dateStr);
-      return 1547.7 * ndvi - 572.71;
+      return Math.max(0, 1547.7 * ndvi - 572.71);
     }
-    if(group === 'panicum'){
-      // Cisneros Garcia et al. (2020), Dall'Olmo productivity formula
-      const { r740, r783, r865 } = await computeTalhaoPanicumBands(ring, dateStr);
-      return 218.6 * Math.exp(7.52 * r865 * (1 / r783 - 1 / r740));
-    }
-    // Bretas et al. (2021): massa fresca × teor de MS
+    // Bretas et al. (2021): massa fresca × teor de MS — used for
+    // Braquiária/Andropogon, and as a temporary substitute for Panicum
+    // (see note above).
     const ndvi = await computeTalhaoNDVI(ring, dateStr);
     const massaFresca = 42340 * ndvi - 10450;
     const teorMS = -88.8984 * ndvi + 92.3287; // %
-    return massaFresca * (teorMS / 100);
+    return Math.max(0, massaFresca * (teorMS / 100));
   }
   // Proteína bruta (%) — Díaz Giraldo et al. (2023), GNDVI. The published
   // model is a GAM (smooth curve) with no published coefficients, so this
@@ -5840,10 +5856,16 @@
       const labelDate = document.getElementById('dosselLabelDateSelect').value;
       const rowDate = labelDate || imageDate;
 
-      let ok = 0, skipped = 0, fail = 0;
-      for(let i = 0; i < talhaoFeatures.length; i++){
-        const feature = talhaoFeatures[i];
-        statusEl.textContent = 'Calculando "' + feature.name + '"… (' + (i+1) + '/' + talhaoFeatures.length + ')';
+      // Each talhão is an independent network round-trip (fetch a Sentinel
+      // Hub image + decode its pixels), so running them one at a time was
+      // the slow part — not any real bottleneck in the math. A small
+      // concurrency pool runs several talhões at once (fast enough to feel
+      // near-instant for a normal-sized farm) without firing all requests
+      // at once, which the Sentinel Hub API and the browser would both
+      // throttle anyway.
+      let ok = 0, skipped = 0, fail = 0, done = 0;
+      const CONCURRENCY = 6;
+      async function processOne(feature){
         const ring = feature.parts[0][0];
         const especie = speciesByTalhao.get(normalize(feature.name));
         try{
@@ -5852,7 +5874,7 @@
             const gndvi = await computeTalhaoGNDVI(ring, imageDate);
             value = proteinaBrutaFromGndvi(gndvi);
           }else{
-            if(!especie){ skipped++; continue; }
+            if(!especie){ skipped++; return; }
             value = await computeMassaForragemTalhao(ring, imageDate, especie);
           }
           const decimals = varVal === '__proteina' ? 1 : 0;
@@ -5863,7 +5885,19 @@
           }, { onConflict: 'category,map_definition_id,farm_id,talhao_name,sample_date' });
           ok++;
         }catch(err){ fail++; }
+        finally{
+          done++;
+          statusEl.textContent = 'Calculando… (' + done + '/' + talhaoFeatures.length + ')';
+        }
       }
+      let nextIdx = 0;
+      async function worker(){
+        while(nextIdx < talhaoFeatures.length){
+          const feature = talhaoFeatures[nextIdx++];
+          await processOne(feature);
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, talhaoFeatures.length) }, worker));
 
       document.getElementById('mapaSelect').value = mapId;
       populateMapaVariableSelect();
