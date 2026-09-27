@@ -1008,8 +1008,7 @@
                 <button type="button" class="multi-select-trigger" id="ndviSecondaryVarTrigger">Nenhuma selecionada</button>
                 <div class="multi-select-panel" id="ndviSecondaryVarPanel" style="display:none;"></div>
               </div>
-              <label class="field-label" style="margin-top:10px;">Data</label>
-              <select id="ndviDateSelect"><option value="">Mais recente</option></select>
+              <div class="field-status" style="margin-top:8px;">A data é escolhida na caixa "Data" dentro do mapa (campos "Data dos rótulos" e "Data da imagem").</div>
               <button class="primary-btn" id="renderNdviBtn">Mostrar no mapa</button>
               <div class="field-status" id="ndviRenderStatus"></div>
             </div>
@@ -1440,8 +1439,10 @@
   }
 
   const satelliteDateControl = L.control({ position: 'topright' });
+  let satelliteDateControlDiv = null;
   satelliteDateControl.onAdd = function(){
     const div = L.DomUtil.create('div', 'leaflet-bar date-control satellite-box');
+    satelliteDateControlDiv = div;
     const body = document.createElement('div');
     body.innerHTML = '<select id="waybackSelect"><option value="">Mais recente</option></select>';
     makeCollapsible(div, 'Satélite', body);
@@ -1459,9 +1460,11 @@
   let categoryFilterEntries = [];
   let categoryFilterState = new Map();
   let categoryFilterBodyEl = null;
+  let categoryFilterControlDiv = null;
   const categoryFilterControl = L.control({ position: 'topright' });
   categoryFilterControl.onAdd = function(){
     const div = L.DomUtil.create('div', 'leaflet-bar date-control category-box');
+    categoryFilterControlDiv = div;
     categoryFilterBodyEl = document.createElement('div');
     categoryFilterBodyEl.className = 'cat-filter-body';
     categoryFilterBodyEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Gere um mapa para filtrar.</div>';
@@ -1483,10 +1486,13 @@
   // Same date filters as the "Mapa" tab, as a floating control on the map
   // itself — lets the user change the date without leaving the map.
   const dateFilterControl = L.control({ position: 'topright' });
+  let dateFilterControlDiv = null;
   dateFilterControl.onAdd = function(){
     const div = L.DomUtil.create('div', 'leaflet-bar date-control date-filter-box');
+    dateFilterControlDiv = div;
     const body = document.createElement('div');
     body.innerHTML =
+      '<div id="dateBoxNormalSection">' +
       '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Ano</label>' +
       '<select id="mapCtrlYearSelect" style="width:100%;margin-bottom:6px;"><option value="">Todos</option></select>' +
       '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Mês</label>' +
@@ -1503,7 +1509,25 @@
         '<button type="button" class="mini-btn" id="mapCtrlNextDateBtn" style="flex:1;">Data seguinte →</button>' +
       '</div>' +
       '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="mapCtrlDateNavStatus"></div>' +
-      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = média de todo o histórico. Mesma data nos dois = um dia só. Datas diferentes = média do período.</div>';
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = média de todo o histórico. Mesma data nos dois = um dia só. Datas diferentes = média do período.</div>' +
+      '</div>' +
+      '<div id="dateBoxNdviSection" style="display:none;">' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Ano</label>' +
+      '<input type="text" id="ndviYearInput" placeholder="ex.: 2026" style="width:100%;margin-bottom:6px;box-sizing:border-box;">' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Mês</label>' +
+      '<select id="ndviMonthSelect" style="width:100%;margin-bottom:6px;"></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Data dos rótulos</label>' +
+      '<select id="ndviLabelDateSelect" style="width:100%;margin-bottom:6px;"><option value="">Sem rótulos</option></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Data da imagem</label>' +
+      '<select id="ndviImageDateSelect" style="width:100%;margin-bottom:6px;"><option value="">Carregando…</option></select>' +
+      '<button type="button" class="primary-btn" id="ndviDateApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>' +
+      '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        '<button type="button" class="mini-btn" id="ndviDatePrevBtn" style="flex:1;">← Data anterior</button>' +
+        '<button type="button" class="mini-btn" id="ndviDateNextBtn" style="flex:1;">Data seguinte →</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="ndviDateNavStatus"></div>' +
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">"Data anterior"/"Data seguinte" só trocam a imagem de satélite — os rótulos não mudam com elas. Se o mês não tiver upload de dados, dá pra ver o mapa sem rótulos.</div>' +
+      '</div>';
     makeCollapsible(div, 'Data', body);
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
@@ -1623,8 +1647,23 @@
   let ndviDateControlDiv = null;
   function updateNdviDateControlVisibility(){
     if(!ndviDateControlDiv) return;
+    // Superseded by "Data da imagem" inside the "Data" box for this tab.
+    if(currentSubtab === 'forragem'){ ndviDateControlDiv.style.display = 'none'; return; }
     const isNdviActive = TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer);
     ndviDateControlDiv.style.display = isNdviActive ? 'block' : 'none';
+  }
+  // "Camadas NDVI" never paints a primary variable, so the "Satélite"
+  // basemap-date box and the "Faixas" category filter box (both about
+  // painted faixas/talhões) don't apply there and stay hidden.
+  function updatePlainModeControlsVisibility(){
+    const hide = currentSubtab === 'forragem';
+    if(satelliteDateControlDiv) satelliteDateControlDiv.style.display = hide ? 'none' : '';
+    if(categoryFilterControlDiv) categoryFilterControlDiv.style.display = hide ? 'none' : '';
+    updateNdviDateControlVisibility();
+    const normalSection = document.getElementById('dateBoxNormalSection');
+    const ndviSection = document.getElementById('dateBoxNdviSection');
+    if(normalSection) normalSection.style.display = hide ? 'none' : '';
+    if(ndviSection) ndviSection.style.display = hide ? '' : 'none';
   }
 
   function switchMapLayer(key){
@@ -1859,6 +1898,11 @@
   // where the point is to see the raw imagery, with talhão data available
   // only via secondary-variable labels on click, not fill color.
   let forcePlainStyleMode = false;
+  // "Camadas NDVI" specifically, when "Sem rótulos" is chosen: skip the
+  // category_data fetch entirely so every talhão renders with no label
+  // data, instead of the normal "blank dates = average of all history"
+  // meaning that fetching with an empty date range would otherwise carry.
+  let suppressLabelsMode = false;
   let controlPanelVisible = true;
 
   function updateControlPanelDisplay(){
@@ -1893,6 +1937,7 @@
     if(currentSubtab === 'dossel' && !isPastagens) currentSubtab = 'upload';
     const isForragemActive = isCategoryPage && isPastagens && currentSubtab === 'forragem';
     if(!isForragemActive) switchMapLayer('satellite');
+    updatePlainModeControlsVisibility();
     document.querySelectorAll('.sub-tab[data-subtab]').forEach(b => b.classList.toggle('active', b.dataset.subtab === currentSubtab));
     updateControlPanelDisplay();
 
@@ -2237,6 +2282,21 @@
   // colors underneath stay fully visible — this overrides whatever
   // thematic/faixa color a layer would otherwise get.
   const NDVI_TALHAO_STYLE = { color: '#000000', weight: 2, fill: false };
+  // Matches the color ramp in the NDVI_RAW/NDVI evalscripts (Sentinel Hub
+  // side) exactly, so the legend shown for "Camadas NDVI" reflects the
+  // actual colors painted by the satellite imagery.
+  const NDVI_LEGEND_RAMP = [
+    { color: '#006837', label: '0,9 a 1' },
+    { color: '#1a9850', label: '0,8 a 0,9' },
+    { color: '#66bd63', label: '0,7 a 0,8' },
+    { color: '#a6d96a', label: '0,6 a 0,7' },
+    { color: '#d9ef8b', label: '0,5 a 0,6' },
+    { color: '#fee08b', label: '0,4 a 0,5' },
+    { color: '#fdae61', label: '0,3 a 0,4' },
+    { color: '#f46d43', label: '0,2 a 0,3' },
+    { color: '#d73027', label: '0,1 a 0,2' },
+    { color: '#a50026', label: '-1 a 0,1' }
+  ];
   function styleForNdvi(style){
     if(forcePlainStyleMode) return NDVI_TALHAO_STYLE;
     return TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer) ? NDVI_TALHAO_STYLE : style;
@@ -2706,7 +2766,13 @@
       return escapeHtml(formatted !== null ? formatted : String(rowValues[name]));
     }
     let html = '<div class="popup"><strong>' + escapeHtml(layer.featureName) + '</strong>';
-    html += '<div class="popup-block"><div class="popup-row"><span>' + escapeHtml(primaryVarName) + '</span><strong>' + fmtVal(primaryVarName) + '</strong></div>';
+    // "__talhao" (the built-in "Talhões" mode) is redundant here — the
+    // title above already shows the talhão's name — so skip that row.
+    if(primaryVarName !== '__talhao'){
+      html += '<div class="popup-block"><div class="popup-row"><span>' + escapeHtml(primaryVarName) + '</span><strong>' + fmtVal(primaryVarName) + '</strong></div>';
+    } else {
+      html += '<div class="popup-block">';
+    }
     if(secondaryVarNames && secondaryVarNames.length > 0){
       secondaryVarNames.forEach(name => {
         html += '<div class="popup-row"><span>' + escapeHtml(name) + '</span><strong>' + fmtVal(name) + '</strong></div>';
@@ -4498,6 +4564,11 @@
       let data;
       let usedOfflineCache = false;
       const idbKey = 'categoryData_' + currentCategory + '_' + defId;
+      if(suppressLabelsMode){
+        // "Camadas NDVI" with "Sem rótulos" chosen: skip fetching upload
+        // data entirely — every talhão renders with no label data.
+        data = [];
+      } else {
       try{
         data = await fetchAllRows(() => {
           let query = sb.from('category_data').select('*').eq('category', currentCategory).eq('map_definition_id', defId);
@@ -4511,6 +4582,7 @@
         if(!cached) throw networkErr;
         data = cached.filter(r => (!startDate || r.sample_date >= startDate) && (!endDate || r.sample_date <= endDate));
         usedOfflineCache = true;
+      }
       }
 
       // How each talhão's values are computed from the fetched rows:
@@ -4666,21 +4738,32 @@
         bindPopupGeneric(layer, def, varDef.name, secondaryNames, row.values, row.sample_date);
       });
 
-      const entries = varDef.mode === 'numeric'
-        ? validRows.map(r => {
-            const rangeStr = formatIntervalRange(r, varDef.decimals, varDef.isCurrency);
-            const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
-            return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
-          })
-        : varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 }));
+      if(forcePlainStyleMode){
+        // "Camadas NDVI": no faixas to filter by (nothing is painted by
+        // data) — show the fixed NDVI color ramp as reference instead of
+        // the usual per-category/per-talhão legend.
+        const ndviLegendEntries = NDVI_LEGEND_RAMP.map(r => ({ color: r.color, label: r.label, opacityPercent: 100, borderColor: '#12181A', borderWidth: 1 }));
+        categoryFilterEntries = [];
+        categoryFilterState = new Map();
+        renderLegendGeneric(ndviLegendEntries, 0, 0, 'NDVI', null);
+        renderCategoryFilterBody();
+      } else {
+        const entries = varDef.mode === 'numeric'
+          ? validRows.map(r => {
+              const rangeStr = formatIntervalRange(r, varDef.decimals, varDef.isCurrency);
+              const label = (r.label && r.label.trim()) ? (r.label.trim() + ' (' + rangeStr + ')') : rangeStr;
+              return { color: r.color, label, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 };
+            })
+          : varDef.categoryRows.map(r => ({ color: r.color, label: r.value, opacityPercent: r.opacityPercent, borderColor: r.borderColor || '#12181A', borderWidth: Number.isFinite(r.borderWidth) ? r.borderWidth : 1 }));
 
-      categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
-      if(outOfRangeCount > 0) categoryFilterEntries.push({ key: 'outofrange', label: 'Fora das faixas definidas', color: OUT_OF_RANGE_COLOR, opacityPercent: 100, borderWidth: 0 });
-      if(unmatched.length > 0 && varDef.noData && varDef.noData.enabled) categoryFilterEntries.push({ key: 'nodata', label: 'Sem dado', color: varDef.noData.color, opacityPercent: varDef.noData.opacityPercent, borderWidth: varDef.noData.borderWidth, borderColor: varDef.noData.borderColor });
-      categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
+        categoryFilterEntries = entries.map((en, i) => Object.assign({ key: 'entry_' + i }, en));
+        if(outOfRangeCount > 0) categoryFilterEntries.push({ key: 'outofrange', label: 'Fora das faixas definidas', color: OUT_OF_RANGE_COLOR, opacityPercent: 100, borderWidth: 0 });
+        if(unmatched.length > 0 && varDef.noData && varDef.noData.enabled) categoryFilterEntries.push({ key: 'nodata', label: 'Sem dado', color: varDef.noData.color, opacityPercent: varDef.noData.opacityPercent, borderWidth: varDef.noData.borderWidth, borderColor: varDef.noData.borderColor });
+        categoryFilterState = new Map(categoryFilterEntries.map(e => [e.key, true]));
 
-      renderLegendGeneric(entries, unmatched.length, outOfRangeCount, varDef.name, varDef.noData);
-      renderCategoryFilterBody();
+        renderLegendGeneric(entries, unmatched.length, outOfRangeCount, varDef.name, varDef.noData);
+        renderCategoryFilterBody();
+      }
       updateLayerVisibility();
 
       const periodLabel = ' (' + (singleDay ? ('em ' + formatDateBR(startDate)) : (formatDateRangeBR(startDate, endDate) + ' — média')) + ')';
@@ -5285,32 +5368,112 @@
     const wrap = document.getElementById('ndviSecondaryVarMultiSelect');
     if(wrap && !wrap.contains(e.target)) document.getElementById('ndviSecondaryVarPanel').style.display = 'none';
   });
-  async function refreshNdviDates(){
-    const mapId = document.getElementById('ndviMapSelect').value;
-    const sel = document.getElementById('ndviDateSelect');
-    if(!mapId){ sel.innerHTML = '<option value="">Mais recente</option>'; return; }
-    try{
-      const rows = await fetchAllRows(() => sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId));
-      const dates = Array.from(new Set(rows.map(r => r.sample_date))).sort();
-      sel.innerHTML = '<option value="">Mais recente</option>' + dates.slice().reverse().map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
-    }catch(err){
-      sel.innerHTML = '<option value="">Mais recente</option>';
-    }
-  }
   document.getElementById('ndviMapSelect').addEventListener('change', async () => {
     renderNdviSecondaryVarOptions();
-    await refreshNdviDates();
+    await refreshNdviLabelDates();
   });
-  document.getElementById('renderNdviBtn').addEventListener('click', async () => {
-    const statusEl = document.getElementById('ndviRenderStatus');
+
+  // ---- "Data" box (on the map) in Camadas NDVI mode: Ano (free text),
+  // Mês (no "Todos"), Data dos rótulos (upload dates), Data da imagem
+  // (real Sentinel-2 acquisition dates from the Sentinel Hub catalog). ----
+  function populateNdviMonthOptions(){
+    const sel = document.getElementById('ndviMonthSelect');
+    const prev = sel.value;
+    sel.innerHTML = Object.keys(MONTH_NAMES).map(m => '<option value="' + m + '">' + MONTH_NAMES[m] + '</option>').join('');
+    sel.value = (prev && MONTH_NAMES[prev]) ? prev : String(new Date().getMonth() + 1).padStart(2, '0');
+  }
+  function ensureNdviYearMonthDefaults(){
+    const yearInput = document.getElementById('ndviYearInput');
+    if(!yearInput.value.trim()) yearInput.value = String(new Date().getFullYear());
+    populateNdviMonthOptions();
+  }
+  async function refreshNdviLabelDates(){
+    const sel = document.getElementById('ndviLabelDateSelect');
     const mapId = document.getElementById('ndviMapSelect').value;
-    if(!mapId){ statusEl.textContent = 'Escolha um mapa.'; return; }
-    statusEl.textContent = 'Carregando…';
+    const year = document.getElementById('ndviYearInput').value.trim();
+    const month = document.getElementById('ndviMonthSelect').value;
+    if(!mapId || !year || !month){ sel.innerHTML = '<option value="">Sem rótulos</option>'; return; }
     try{
-      // Drive the shared fields, forcing "Talhões" as the primary variable
-      // (never shown to the user — plain style is forced regardless below)
-      // and this tab's own secondary-variable picks, then run the shared
-      // render engine with painting suppressed.
+      const rows = await fetchAllRows(() => sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId));
+      const dates = Array.from(new Set(rows.map(r => r.sample_date)))
+        .filter(d => d.slice(0,4) === year && d.slice(5,7) === month)
+        .sort();
+      sel.innerHTML = '<option value="">Sem rótulos</option>' + dates.map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
+      if(dates.length > 0) sel.value = dates[dates.length - 1];
+    }catch(err){
+      sel.innerHTML = '<option value="">Sem rótulos</option>';
+    }
+  }
+  function computeFarmBbox(farm){
+    if(!farm) return null;
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+    getAllFarmFeatures(farm).forEach(f => {
+      (f.parts[0][0] || []).forEach(([lat, lng]) => {
+        if(lat < minLat) minLat = lat;
+        if(lat > maxLat) maxLat = lat;
+        if(lng < minLng) minLng = lng;
+        if(lng > maxLng) maxLng = lng;
+      });
+    });
+    if(!Number.isFinite(minLat)) return null;
+    return [minLng, minLat, maxLng, maxLat];
+  }
+  let ndviImageDatesCache = [];
+  async function refreshNdviImageDates(){
+    const sel = document.getElementById('ndviImageDateSelect');
+    const year = document.getElementById('ndviYearInput').value.trim();
+    const month = document.getElementById('ndviMonthSelect').value;
+    if(!/^\d{4}$/.test(year) || !month){ sel.innerHTML = '<option value="">Escolha ano e mês</option>'; ndviImageDatesCache = []; return; }
+    const farmName = document.getElementById('farmFilter').value;
+    const farm = farms.find(f => f.name === farmName);
+    const bbox = computeFarmBbox(farm);
+    if(!bbox){ sel.innerHTML = '<option value="">Selecione uma fazenda</option>'; ndviImageDatesCache = []; return; }
+    sel.innerHTML = '<option value="">Carregando…</option>';
+    try{
+      const token = await getSentinelToken();
+      const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+      const startIso = year + '-' + month + '-01T00:00:00Z';
+      const endIso = year + '-' + month + '-' + String(daysInMonth).padStart(2, '0') + 'T23:59:59Z';
+      const resp = await fetch('https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ collections: ['sentinel-2-l2a'], datetime: startIso + '/' + endIso, bbox, limit: 100 })
+      });
+      if(!resp.ok) throw new Error('HTTP ' + resp.status);
+      const result = await resp.json();
+      const dates = Array.from(new Set((result.features || [])
+        .filter(f => f.properties['eo:cloud_cover'] == null || f.properties['eo:cloud_cover'] <= 40)
+        .map(f => f.properties.datetime.slice(0, 10))
+      )).sort();
+      ndviImageDatesCache = dates;
+      if(dates.length === 0){ sel.innerHTML = '<option value="">Nenhuma imagem encontrada</option>'; return; }
+      sel.innerHTML = dates.map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
+      sel.value = dates[dates.length - 1];
+    }catch(err){
+      sel.innerHTML = '<option value="">Erro ao buscar imagens</option>';
+      ndviImageDatesCache = [];
+    }
+  }
+  document.getElementById('ndviYearInput').addEventListener('change', async () => {
+    await Promise.all([refreshNdviLabelDates(), refreshNdviImageDates()]);
+  });
+  document.getElementById('ndviMonthSelect').addEventListener('change', async () => {
+    await Promise.all([refreshNdviLabelDates(), refreshNdviImageDates()]);
+  });
+
+  // The actual render: reads the map/secondary-vars from the sidebar box
+  // and year/mês/rótulos/imagem from the "Data" box on the map.
+  async function applyNdviView(){
+    const statusEl = document.getElementById('ndviRenderStatus');
+    const navStatusEl = document.getElementById('ndviDateNavStatus');
+    const mapId = document.getElementById('ndviMapSelect').value;
+    const year = document.getElementById('ndviYearInput').value.trim();
+    const month = document.getElementById('ndviMonthSelect').value;
+    if(!mapId){ statusEl.textContent = 'Escolha um mapa.'; return; }
+    if(!year || !month){ statusEl.textContent = 'Escolha ano e mês na caixa "Data".'; return; }
+    statusEl.textContent = 'Carregando…';
+    if(navStatusEl) navStatusEl.textContent = '';
+    try{
       document.getElementById('mapaSelect').value = mapId;
       populateMapaVariableSelect();
       document.getElementById('mapaVariableSelect').value = '__talhao';
@@ -5321,18 +5484,52 @@
       });
       updateSecondaryVarTriggerLabel();
       await refreshAvailableDates();
-      const chosenDate = document.getElementById('ndviDateSelect').value;
-      document.getElementById('mapCtrlStartDateSelect').value = chosenDate;
-      document.getElementById('mapCtrlEndDateSelect').value = chosenDate;
+
+      const labelDate = document.getElementById('ndviLabelDateSelect').value; // '' = "Sem rótulos"
+      suppressLabelsMode = !labelDate;
+      document.getElementById('mapCtrlStartDateSelect').value = labelDate;
+      document.getElementById('mapCtrlEndDateSelect').value = labelDate;
+
+      const imageDate = document.getElementById('ndviImageDateSelect').value;
+      if(imageDate) TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: sentinelTimeRange(imageDate) }));
+
       statusEl.textContent = '';
       forcePlainStyleMode = true;
       await performMapRender();
-      forcePlainStyleMode = false;
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
+    }finally{
       forcePlainStyleMode = false;
+      suppressLabelsMode = false;
     }
+  }
+  document.getElementById('renderNdviBtn').addEventListener('click', async () => {
+    ensureNdviYearMonthDefaults();
+    await Promise.all([refreshNdviLabelDates(), refreshNdviImageDates()]);
+    await applyNdviView();
   });
+  document.getElementById('ndviDateApplyBtn').addEventListener('click', () => applyNdviView());
+  // "Data anterior"/"Data seguinte": only swap which satellite image is
+  // shown (by date, within the real acquisition dates found for this
+  // ano/mês) — the labels/talhões are left exactly as they are.
+  function navigateNdviImageDate(direction){
+    const navStatusEl = document.getElementById('ndviDateNavStatus');
+    if(ndviImageDatesCache.length === 0){ navStatusEl.textContent = 'Nenhuma imagem disponível.'; return; }
+    const sel = document.getElementById('ndviImageDateSelect');
+    let idx = ndviImageDatesCache.indexOf(sel.value);
+    if(idx === -1) idx = ndviImageDatesCache.length - 1;
+    const targetIdx = idx + direction;
+    if(targetIdx < 0 || targetIdx >= ndviImageDatesCache.length){
+      navStatusEl.textContent = direction < 0 ? 'Não há imagem anterior nesse mês.' : 'Não há imagem seguinte nesse mês.';
+      return;
+    }
+    navStatusEl.textContent = '';
+    const targetDate = ndviImageDatesCache[targetIdx];
+    sel.value = targetDate;
+    TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: sentinelTimeRange(targetDate) }));
+  }
+  document.getElementById('ndviDatePrevBtn').addEventListener('click', () => navigateNdviImageDate(-1));
+  document.getElementById('ndviDateNextBtn').addEventListener('click', () => navigateNdviImageDate(1));
   document.getElementById('renderDosselBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('dosselRenderStatus');
     const mapId = document.getElementById('dosselMapSelect').value;
