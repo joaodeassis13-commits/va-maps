@@ -4522,9 +4522,15 @@
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const sel = document.getElementById('mapaVariableSelect');
-    const computedOpts = (def && def.category === 'pastagens') ? '<option value="__massa">Massa de forragem (kg MS/ha)</option><option value="__proteina">Proteína bruta (%)</option>' : '';
+    // "Massa de forragem"/"Proteína bruta" are NOT listed here: they're
+    // computed by the system per talhão (species + Sentinel-2 imagery)
+    // exclusively for the Dossel Forrageiro sub-tab's own fixed selector.
+    // They only ever show up as a "Mapa" variable if the map's own
+    // uploaded spreadsheet happens to define a variable with that exact
+    // name — in which case it already comes from def.variables below,
+    // as real uploaded data, not this system-computed one.
     sel.innerHTML = def
-      ? ('<option value="__talhao">Talhões</option>' + computedOpts + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
+      ? ('<option value="__talhao">Talhões</option>' + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
       : '<option value="">—</option>';
     renderSecondaryVarOptions();
   }
@@ -4665,18 +4671,23 @@
     { min: 12, max: 14, color: '#66bd63', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
     { min: 14, max: null, color: '#1a9850', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 }
   ];
-  async function performMapRender(){
-    const defId = document.getElementById('mapaSelect').value;
+  // overrides (optional) lets "Camadas NDVI" and "Dossel forrageiro" drive
+  // a render with their OWN map/variable/dates without touching the "Mapa"
+  // tab's own controls — each sub-tab's map selection stays independent
+  // and never leaks into (or gets overwritten by) another's.
+  async function performMapRender(overrides){
+    const ov = overrides || {};
+    const defId = ov.defId !== undefined ? ov.defId : document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
-    const rawVarVal = document.getElementById('mapaVariableSelect').value;
+    const rawVarVal = ov.rawVarVal !== undefined ? ov.rawVarVal : document.getElementById('mapaVariableSelect').value;
     const isBuiltinTalhao = rawVarVal === '__talhao';
     const isBuiltinMassa = rawVarVal === '__massa';
     const isBuiltinProteina = rawVarVal === '__proteina';
     const isBuiltinComputed = isBuiltinMassa || isBuiltinProteina;
     const varIdx = (isBuiltinTalhao || isBuiltinComputed) ? -1 : Number(rawVarVal);
-    const secondaryIdxs = getSelectedSecondaryIdxs();
-    const startDate = document.getElementById('mapCtrlStartDateSelect').value || null;
-    const endDate = document.getElementById('mapCtrlEndDateSelect').value || null;
+    const secondaryIdxs = ov.secondaryIdxs !== undefined ? ov.secondaryIdxs : getSelectedSecondaryIdxs();
+    const startDate = (ov.startDate !== undefined ? ov.startDate : document.getElementById('mapCtrlStartDateSelect').value) || null;
+    const endDate = (ov.endDate !== undefined ? ov.endDate : document.getElementById('mapCtrlEndDateSelect').value) || null;
     const statusEl = document.getElementById('mapaStatus');
     if(!def || (!isBuiltinTalhao && !isBuiltinComputed && !Number.isInteger(varIdx))){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
     const varDef = isBuiltinTalhao
@@ -5418,11 +5429,12 @@
     return 'brachiaria';
   }
   // Massa de forragem (kg MS/ha) — dispatches to the equation matching
-  // the talhão's registered species. All are floored at 0: a linear
-  // equação fit to a limited NDVI range can (and does) go negative once
-  // NDVI drops below the fitted domain, which has no physical meaning as
-  // a mass — it means "outside the range this equation was built for",
-  // not "negative forage".
+  // the talhão's registered species. Returns null (not 0) once NDVI
+  // drops below the equation's valid domain: a linear fit going negative
+  // doesn't mean "zero forage", it means "this equation says nothing
+  // reliable at this NDVI" — showing a flat 0 would read as a real
+  // measurement instead of a missing one, so these talhões are left
+  // unpainted ("sem dado") instead, same as a talhão with no species.
   //
   // Panicum note: the Cisneros Garcia et al. (2020) Dall'Olmo formula
   // (218.6 × e^(7.52×R865×(1/R783−1/R740))) was verified against the
@@ -5443,7 +5455,8 @@
     if(group === 'humidicola'){
       // Díaz Giraldo et al. (2021), NDVI Sentinel-2A, R²=0,712
       const ndvi = await computeTalhaoNDVI(ring, dateStr);
-      return Math.max(0, 1547.7 * ndvi - 572.71);
+      const v = 1547.7 * ndvi - 572.71;
+      return v >= 0 ? v : null;
     }
     // Bretas et al. (2021): massa fresca × teor de MS — used for
     // Braquiária/Andropogon, and as a temporary substitute for Panicum
@@ -5451,7 +5464,8 @@
     const ndvi = await computeTalhaoNDVI(ring, dateStr);
     const massaFresca = 42340 * ndvi - 10450;
     const teorMS = -88.8984 * ndvi + 92.3287; // %
-    return Math.max(0, massaFresca * (teorMS / 100));
+    const v = massaFresca * (teorMS / 100);
+    return v >= 0 ? v : null;
   }
   // Proteína bruta (%) — Díaz Giraldo et al. (2023), GNDVI. The published
   // model is a GAM (smooth curve) with no published coefficients, so this
@@ -5755,28 +5769,17 @@
     statusEl.textContent = 'Carregando…';
     if(navStatusEl) navStatusEl.textContent = '';
     try{
-      document.getElementById('mapaSelect').value = mapId;
-      populateMapaVariableSelect();
-      document.getElementById('mapaVariableSelect').value = '__talhao';
-      renderSecondaryVarOptions();
       const ndviIdxs = getSelectedNdviSecondaryIdxs();
-      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => {
-        cb.checked = ndviIdxs.includes(Number(cb.value));
-      });
-      updateSecondaryVarTriggerLabel();
-      await refreshAvailableDates();
 
       const labelDate = document.getElementById('ndviLabelDateSelect').value; // '' = "Sem rótulos"
       suppressLabelsMode = !labelDate;
-      document.getElementById('mapCtrlStartDateSelect').value = labelDate;
-      document.getElementById('mapCtrlEndDateSelect').value = labelDate;
 
       const imageDate = document.getElementById('ndviImageDateSelect').value;
       if(imageDate) TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: sentinelTimeRange(imageDate) }));
 
       statusEl.textContent = '';
       forcePlainStyleMode = true;
-      await performMapRender();
+      await performMapRender({ defId: mapId, rawVarVal: '__talhao', secondaryIdxs: ndviIdxs, startDate: labelDate, endDate: labelDate });
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
     }finally{
@@ -5863,7 +5866,7 @@
       // near-instant for a normal-sized farm) without firing all requests
       // at once, which the Sentinel Hub API and the browser would both
       // throttle anyway.
-      let ok = 0, skipped = 0, fail = 0, done = 0;
+      let ok = 0, skipped = 0, fail = 0, belowDomain = 0, done = 0;
       const CONCURRENCY = 6;
       async function processOne(feature){
         const ring = feature.parts[0][0];
@@ -5876,6 +5879,18 @@
           }else{
             if(!especie){ skipped++; return; }
             value = await computeMassaForragemTalhao(ring, imageDate, especie);
+            if(value === null){
+              belowDomain++;
+              // A previous run (different formula, or before this floor
+              // became a null instead of a 0) may have already written a
+              // row for this exact talhão+date — leaving it would make
+              // the map show a stale, misleading number instead of "sem
+              // dado", so clear it out.
+              await sb.from('category_data').delete()
+                .eq('category', currentCategory).eq('map_definition_id', def.id)
+                .eq('farm_id', farm.id).eq('talhao_name', feature.name).eq('sample_date', rowDate);
+              return;
+            }
           }
           const decimals = varVal === '__proteina' ? 1 : 0;
           await sb.from('category_data').upsert({
@@ -5899,25 +5914,15 @@
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, talhaoFeatures.length) }, worker));
 
-      document.getElementById('mapaSelect').value = mapId;
-      populateMapaVariableSelect();
-      document.getElementById('mapaVariableSelect').value = varVal;
-      renderSecondaryVarOptions();
       const dosselIdxs = getSelectedDosselSecondaryIdxs();
-      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => {
-        cb.checked = dosselIdxs.includes(Number(cb.value));
-      });
-      updateSecondaryVarTriggerLabel();
-      await refreshAvailableDates();
-      document.getElementById('mapCtrlStartDateSelect').value = rowDate;
-      document.getElementById('mapCtrlEndDateSelect').value = rowDate;
 
       statusEl.textContent = ok + ' talhão(ões) calculado(s)'
         + (skipped > 0 ? ', ' + skipped + ' sem espécie cadastrada' : '')
+        + (belowDomain > 0 ? ', ' + belowDomain + ' com NDVI abaixo do limite da fórmula (sem estimativa confiável)' : '')
         + (fail > 0 ? ', ' + fail + ' com falha (nuvens/sem imagem)' : '') + '.';
       forcePlainStyleMode = false;
       suppressLabelsMode = false;
-      await performMapRender();
+      await performMapRender({ defId: mapId, rawVarVal: varVal, secondaryIdxs: dosselIdxs, startDate: rowDate, endDate: rowDate });
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
     }
