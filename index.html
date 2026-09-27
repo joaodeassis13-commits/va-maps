@@ -291,9 +291,7 @@
   body.role-supervisor .chartdef-edit,
   body.role-supervisor .chartdef-delete,
   body.role-supervisor .chartdef-move-up,
-  body.role-supervisor .chartdef-move-down,
-  body.role-supervisor #saveForageSampleBtn,
-  body.role-supervisor #estimateForageBtn{
+  body.role-supervisor .chartdef-move-down{
     display: none !important;
   }
 
@@ -797,6 +795,20 @@
               <label class="field-label" style="margin-top:16px;">Acessos concedidos</label>
               <div id="farmAccessList" class="field-status">Carregando…</div>
             </div>
+            <div class="section" id="section-talhao-especie" style="flex:1 1 100%;">
+              <div class="section-head"><h2>Espécie forrageira por talhão</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">
+                Envie uma planilha com o nome do talhão e a espécie forrageira daquele talhão. Cada talhão passa a ter uma espécie cadastrada, usada nos cálculos de massa/altura baseados na literatura. A planilha precisa ter duas colunas, com esses nomes no cabeçalho: <strong>Talhão</strong> e <strong>Espécie</strong>.
+              </div>
+              <label class="field-label">Fazenda</label>
+              <select id="talhaoEspecieFarmSelect"><option value="">Selecione…</option></select>
+              <label class="file-btn" style="margin-top:8px;">Selecionar planilha (.xlsx ou .csv)
+                <input type="file" id="talhaoEspecieFile" accept=".xlsx,.xls,.csv" hidden>
+              </label>
+              <div class="field-status" id="talhaoEspecieUploadStatus">Nenhum arquivo selecionado.</div>
+              <label class="field-label" style="margin-top:12px;">Espécies cadastradas nessa fazenda</label>
+              <div id="talhaoEspecieList" class="field-status">Selecione uma fazenda acima.</div>
+            </div>
           </div>
 
           <div id="panel-geracao" style="display:none;">
@@ -1041,42 +1053,6 @@
               <select id="dosselDateSelect"><option value="">Mais recente</option></select>
               <button class="primary-btn" id="renderDosselBtn">Mostrar no mapa</button>
               <div class="field-status" id="dosselRenderStatus"></div>
-            </div>
-            <div class="section">
-              <div class="section-head"><h2>Registrar amostra de campo</h2></div>
-              <div class="field-status" style="margin-bottom:8px;">
-                Meça a altura (bastão/prato) e/ou corte e pese a forragem de uma área conhecida, marque no mapa o ponto exato onde fez a medição, e registre aqui. O sistema busca sozinho o NDVI (Sentinel-2) daquele ponto na mesma data — não a média do talhão inteiro, que costuma variar demais numa área grande.
-              </div>
-              <button type="button" class="mini-btn" id="markForagePointBtn">📍 Marcar ponto no mapa</button>
-              <div class="field-status" id="foragePointStatus" style="margin-top:6px;">Nenhum ponto marcado ainda.</div>
-              <label class="field-label" style="margin-top:10px;">Fazenda</label>
-              <select id="forageFarmSelect"><option value="">Selecione…</option></select>
-              <label class="field-label">Talhão (referência, opcional)</label>
-              <select id="forageTalhaoSelect"><option value="">— nenhum / fora de talhão conhecido —</option></select>
-              <label class="field-label">Data da amostra</label>
-              <input type="date" id="forageDateInput">
-              <label class="field-label">Altura (cm) — opcional</label>
-              <input type="number" id="forageHeightInput" step="0.1" placeholder="ex.: 22">
-              <label class="field-label">Massa (kg MS/ha) — opcional</label>
-              <input type="number" id="forageMassInput" step="1" placeholder="ex.: 1800">
-              <button class="primary-btn" id="saveForageSampleBtn">Buscar NDVI e salvar amostra</button>
-              <div class="field-status" id="forageSampleStatus"></div>
-            </div>
-
-            <div class="section">
-              <div class="section-head"><h2>Amostras registradas</h2></div>
-              <div id="forageSamplesList" class="field-status">Selecione uma fazenda acima.</div>
-            </div>
-
-            <div class="section">
-              <div class="section-head"><h2>Calibração e estimativa</h2></div>
-              <div id="forageCalibrationInfo" class="field-status">Registre pelo menos 3 amostras (com altura ou massa) para calibrar.</div>
-              <label class="field-label" style="margin-top:10px;">Mapa (a qual mapa essa estimativa pertence)</label>
-              <select id="forageEstimateMapSelect"><option value="">Selecione…</option></select>
-              <label class="field-label" style="margin-top:10px;">Data de referência para estimar</label>
-              <input type="date" id="forageEstimateDateInput">
-              <button class="primary-btn" id="estimateForageBtn">Estimar para todos os talhões da fazenda</button>
-              <div class="field-status" id="forageEstimateStatus"></div>
             </div>
           </div>
 
@@ -2444,9 +2420,9 @@
     if(farms.some(f => f.name === prevFilter)) filterSel.value = prevFilter;
     else if(farms.length > 0) filterSel.value = farms[0].name;
 
-    populateForageFarmSelect();
     populateGrantFarmsList();
     populateRetiroFarmSelect();
+    populateTalhaoEspecieFarmSelect();
   }
 
   function populateGrantFarmsList(){
@@ -2654,6 +2630,85 @@
     if(farms.some(f => String(f.id) === prev)) sel.value = prev;
     renderRetirosList();
   }
+
+  // ---------- Espécie forrageira por talhão (upload de planilha) ----------
+  function populateTalhaoEspecieFarmSelect(){
+    const sel = document.getElementById('talhaoEspecieFarmSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>' + farms.map(f => '<option value="' + f.id + '">' + escapeHtml(f.name) + '</option>').join('');
+    if(farms.some(f => String(f.id) === prev)) sel.value = prev;
+    loadTalhaoSpecies();
+  }
+  async function loadTalhaoSpecies(){
+    const farmId = document.getElementById('talhaoEspecieFarmSelect').value;
+    const container = document.getElementById('talhaoEspecieList');
+    if(!farmId){ container.innerHTML = 'Selecione uma fazenda acima.'; return; }
+    container.textContent = 'Carregando…';
+    try{
+      const { data, error } = await sb.from('talhao_species').select('*').eq('farm_id', farmId).order('talhao_name');
+      if(error) throw error;
+      if(!data || data.length === 0){ container.innerHTML = 'Nenhuma espécie cadastrada ainda pra essa fazenda.'; return; }
+      container.innerHTML = data.map(row => (
+        '<div class="saved-item" data-id="' + row.id + '">' +
+          '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(row.talhao_name) + '</div>' +
+          '<div class="saved-item-date">' + escapeHtml(row.especie) + '</div></div>' +
+          '<div class="saved-item-actions"><button type="button" class="mini-btn danger talhao-especie-delete">×</button></div>' +
+        '</div>'
+      )).join('');
+    }catch(err){
+      container.innerHTML = 'Erro ao carregar: ' + escapeHtml(err.message);
+    }
+  }
+  document.getElementById('talhaoEspecieFarmSelect').addEventListener('change', loadTalhaoSpecies);
+  document.getElementById('talhaoEspecieList').addEventListener('click', async (e) => {
+    if(!e.target.classList.contains('talhao-especie-delete')) return;
+    const id = e.target.closest('.saved-item').dataset.id;
+    if(!confirmDelete('Excluir a espécie cadastrada desse talhão?')) return;
+    try{
+      const { error } = await sb.from('talhao_species').delete().eq('id', id);
+      if(error) throw error;
+      await loadTalhaoSpecies();
+    }catch(err){
+      setStatus('warn', 'Não foi possível excluir: ' + err.message);
+    }
+  });
+  document.getElementById('talhaoEspecieFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const statusEl = document.getElementById('talhaoEspecieUploadStatus');
+    const farmId = document.getElementById('talhaoEspecieFarmSelect').value;
+    if(!farmId){ statusEl.textContent = 'Escolha a fazenda antes de enviar a planilha.'; e.target.value = ''; return; }
+    statusEl.textContent = 'Lendo planilha…';
+    try{
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if(rows.length < 2) throw new Error('Planilha vazia ou sem linhas de dado.');
+      const header = rows[0].map(h => normalize(h));
+      const talhaoIdx = header.findIndex(h => h === 'talhao' || h === 'talhão' || h.includes('talhao'));
+      const especieIdx = header.findIndex(h => h === 'especie' || h === 'espécie' || h.includes('especie'));
+      if(talhaoIdx === -1 || especieIdx === -1) throw new Error('Não encontrei as colunas "Talhão" e "Espécie" no cabeçalho da planilha.');
+
+      const upserts = [];
+      for(let i = 1; i < rows.length; i++){
+        const talhaoName = String(rows[i][talhaoIdx] || '').trim();
+        const especie = String(rows[i][especieIdx] || '').trim();
+        if(!talhaoName || !especie) continue;
+        upserts.push({ farm_id: farmId, talhao_name: talhaoName, especie, updated_at: new Date().toISOString() });
+      }
+      if(upserts.length === 0) throw new Error('Nenhuma linha válida (com talhão e espécie preenchidos) foi encontrada.');
+
+      const { error } = await sb.from('talhao_species').upsert(upserts, { onConflict: 'farm_id,talhao_name' });
+      if(error) throw error;
+      statusEl.textContent = upserts.length + ' talhão(ões) com espécie cadastrada/atualizada.';
+      await loadTalhaoSpecies();
+    }catch(err){
+      statusEl.textContent = 'Erro: ' + err.message;
+    }finally{
+      e.target.value = '';
+    }
+  });
+
   function renderRetirosList(){
     const container = document.getElementById('retirosList');
     const farmId = document.getElementById('retiroFarmSelect').value;
@@ -3120,7 +3175,6 @@
       await refreshMapAccessGrantedIds();
       renderMapDefinitionsList();
       populateMapaSelectForCategory();
-      populateForageEstimateMapSelect();
       populateDosselMapSelect();
       populateNdviMapSelect();
       populateGrantMapsList();
@@ -3132,7 +3186,6 @@
         mapDefinitions = cached;
         renderMapDefinitionsList();
         populateMapaSelectForCategory();
-        populateForageEstimateMapSelect();
         populateDosselMapSelect();
         populateNdviMapSelect();
         return true;
@@ -5256,29 +5309,6 @@
   function computeNdreAtPoint(lat, lng, dateStr, bufferMeters){
     return computeIndexAtPoint(lat, lng, dateStr, SENTINEL_NDRE_RAW_LAYER, bufferMeters);
   }
-  // Ray-casting point-in-polygon test directly on [lat,lng] rings (same
-  // algorithm as pointInPolygon above, just without needing a pixel
-  // projection first) — used to auto-detect which talhão a marked field
-  // point falls inside, for reference/context only.
-  function pointInPolygonLatLng(lat, lng, ring){
-    let inside = false;
-    for(let i = 0, j = ring.length - 1; i < ring.length; j = i++){
-      const latI = ring[i][0], lngI = ring[i][1], latJ = ring[j][0], lngJ = ring[j][1];
-      const intersect = ((latI > lat) !== (latJ > lat)) && (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI);
-      if(intersect) inside = !inside;
-    }
-    return inside;
-  }
-  function findTalhaoAtPoint(lat, lng){
-    for(const farm of farms){
-      const features = getAllFarmFeatures(farm);
-      for(const feature of features){
-        const ring = feature.parts[0][0];
-        if(pointInPolygonLatLng(lat, lng, ring)) return { farm, feature };
-      }
-    }
-    return null;
-  }
 
   function linearFit(points){
     const n = points.length;
@@ -5293,21 +5323,6 @@
     points.forEach(p => { const pred = a + b * p.x; ssRes += (p.y - pred) ** 2; ssTot += (p.y - meanY) ** 2; });
     const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
     return { a, b, r2, n };
-  }
-
-  let forageSamplesCache = [];
-  function populateForageFarmSelect(){
-    const sel = document.getElementById('forageFarmSelect');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">Selecione…</option>' + farms.map(f => '<option value="' + f.id + '">' + escapeHtml(f.name) + '</option>').join('');
-    if(farms.some(f => String(f.id) === prev)) sel.value = prev;
-  }
-  function populateForageEstimateMapSelect(){
-    const sel = document.getElementById('forageEstimateMapSelect');
-    const relevant = mapDefinitions.filter(m => m.category === 'pastagens');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
-    if(relevant.some(m => String(m.id) === prev)) sel.value = prev;
   }
 
   // ---------- Dossel forrageiro: its own map/variable/date selection,
@@ -5585,173 +5600,6 @@
       statusEl.textContent = 'Erro: ' + err.message;
     }
   });
-  document.getElementById('forageFarmSelect').addEventListener('change', async (e) => {
-    const farm = farms.find(f => String(f.id) === e.target.value);
-    const talhaoSel = document.getElementById('forageTalhaoSelect');
-    if(!farm){
-      talhaoSel.innerHTML = '<option value="">— nenhum / fora de talhão conhecido —</option>';
-      document.getElementById('forageSamplesList').innerHTML = 'Selecione uma fazenda acima.';
-      forageSamplesCache = [];
-      renderForageCalibration();
-      return;
-    }
-    talhaoSel.innerHTML = getAllFarmFeatures(farm).map(f => '<option value="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</option>').join('');
-    await loadForageSamples(farm.id);
-  });
-  async function loadForageSamples(farmId){
-    const container = document.getElementById('forageSamplesList');
-    container.textContent = 'Carregando…';
-    try{
-      const { data, error } = await sb.from('forage_samples').select('*').eq('farm_id', farmId).order('sample_date', { ascending: false });
-      if(error) throw error;
-      forageSamplesCache = data || [];
-      if(forageSamplesCache.length === 0){ container.innerHTML = 'Nenhuma amostra registrada ainda para essa fazenda.'; }
-      else {
-        container.innerHTML = forageSamplesCache.map(s => (
-          '<div class="saved-item" data-id="' + s.id + '">' +
-            '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(s.talhao_name || '(fora de talhão conhecido)') + '</div>' +
-            '<div class="saved-item-date">' + formatDateBR(s.sample_date) + ' — NDVI ' + Number(s.ndvi_value).toFixed(3) +
-              (s.ndre_value != null ? ' · NDRE ' + Number(s.ndre_value).toFixed(3) : '') +
-              (s.height_cm != null ? ' · ' + s.height_cm + ' cm' : '') +
-              (s.mass_kg_ha != null ? ' · ' + s.mass_kg_ha + ' kg MS/ha' : '') + '</div></div>' +
-            '<div class="saved-item-actions"><button type="button" class="mini-btn danger forage-delete">×</button></div>' +
-          '</div>'
-        )).join('');
-      }
-      renderForageCalibration();
-    }catch(err){
-      container.innerHTML = 'Erro ao carregar amostras: ' + escapeHtml(err.message);
-    }
-  }
-  document.getElementById('forageSamplesList').addEventListener('click', async (e) => {
-    if(!e.target.classList.contains('forage-delete')) return;
-    const id = e.target.closest('.saved-item').dataset.id;
-    if(!confirmDelete('Excluir esta amostra?')) return;
-    try{
-      const { error } = await sb.from('forage_samples').delete().eq('id', id);
-      if(error) throw error;
-      const farmId = document.getElementById('forageFarmSelect').value;
-      if(farmId) await loadForageSamples(farmId);
-    }catch(err){
-      setStatus('warn', 'Não foi possível excluir a amostra: ' + err.message);
-    }
-  });
-  // ---------- Marcar ponto no mapa (amostra de forragem) ----------
-  let pendingForagePoint = null; // {lat, lng}
-  let foragePointMarker = null;
-  document.getElementById('markForagePointBtn').addEventListener('click', () => {
-    document.getElementById('foragePointStatus').textContent = 'Clique no mapa no local exato da medição…';
-    map.once('click', (e) => {
-      pendingForagePoint = { lat: e.latlng.lat, lng: e.latlng.lng };
-      if(foragePointMarker) map.removeLayer(foragePointMarker);
-      foragePointMarker = L.circleMarker(e.latlng, { radius: 7, color: '#166336', weight: 2, fillColor: '#166336', fillOpacity: 0.8 }).addTo(map);
-
-      const match = findTalhaoAtPoint(pendingForagePoint.lat, pendingForagePoint.lng);
-      const coordsLabel = pendingForagePoint.lat.toFixed(5) + ', ' + pendingForagePoint.lng.toFixed(5);
-      if(match){
-        document.getElementById('forageFarmSelect').value = match.farm.id;
-        document.getElementById('forageFarmSelect').dispatchEvent(new Event('change'));
-        document.getElementById('forageTalhaoSelect').value = match.feature.name;
-        document.getElementById('foragePointStatus').textContent = 'Ponto marcado: ' + coordsLabel + ' (dentro de "' + match.feature.name + '", ' + match.farm.name + ').';
-      } else {
-        document.getElementById('foragePointStatus').textContent = 'Ponto marcado: ' + coordsLabel + ' (fora de qualquer talhão conhecido — escolha a fazenda manualmente abaixo, se quiser).';
-      }
-    });
-  });
-
-  document.getElementById('saveForageSampleBtn').addEventListener('click', async () => {
-    const farmId = document.getElementById('forageFarmSelect').value;
-    const farm = farms.find(f => String(f.id) === farmId);
-    const talhaoName = document.getElementById('forageTalhaoSelect').value || null;
-    const dateStr = document.getElementById('forageDateInput').value;
-    const heightVal = document.getElementById('forageHeightInput').value;
-    const massVal = document.getElementById('forageMassInput').value;
-    if(!pendingForagePoint){ document.getElementById('forageSampleStatus').textContent = 'Marque no mapa o ponto exato da medição primeiro.'; return; }
-    if(!farm){ document.getElementById('forageSampleStatus').textContent = 'Escolha a fazenda (o ponto marcado não caiu dentro de nenhum talhão conhecido).'; return; }
-    if(!dateStr){ document.getElementById('forageSampleStatus').textContent = 'Escolha a data da amostra.'; return; }
-    if(!heightVal && !massVal){ document.getElementById('forageSampleStatus').textContent = 'Informe pelo menos altura ou massa.'; return; }
-
-    document.getElementById('forageSampleStatus').textContent = 'Buscando NDVI e NDRE no Sentinel-2…';
-    try{
-      const ndviValue = await computeNdviAtPoint(pendingForagePoint.lat, pendingForagePoint.lng, dateStr);
-      let ndreValue = null, ndreNote = '';
-      try{
-        ndreValue = await computeNdreAtPoint(pendingForagePoint.lat, pendingForagePoint.lng, dateStr);
-      }catch(ndreErr){
-        // Optional for now: don't block saving the sample if the NDRE_RAW
-        // layer isn't set up yet in Sentinel Hub, or the request fails.
-        ndreNote = ' (NDRE não disponível: ' + ndreErr.message + ')';
-      }
-      const payload = {
-        farm_id: farm.id, farm_name: farm.name, talhao_name: talhaoName, sample_date: dateStr,
-        lat: pendingForagePoint.lat, lng: pendingForagePoint.lng,
-        height_cm: heightVal ? Number(heightVal) : null,
-        mass_kg_ha: massVal ? Number(massVal) : null,
-        ndvi_value: ndviValue,
-        ndre_value: ndreValue
-      };
-      const { error } = await sb.from('forage_samples').insert(payload);
-      if(error) throw error;
-      document.getElementById('forageSampleStatus').textContent = 'Amostra salva. NDVI: ' + ndviValue.toFixed(3) + (ndreValue != null ? ', NDRE: ' + ndreValue.toFixed(3) : '') + '.' + ndreNote;
-      document.getElementById('forageHeightInput').value = '';
-      document.getElementById('forageMassInput').value = '';
-      pendingForagePoint = null;
-      if(foragePointMarker){ map.removeLayer(foragePointMarker); foragePointMarker = null; }
-      document.getElementById('foragePointStatus').textContent = 'Nenhum ponto marcado ainda.';
-      if(farm) await loadForageSamples(farm.id);
-    }catch(err){
-      document.getElementById('forageSampleStatus').textContent = 'Erro: ' + err.message;
-    }
-  });
-
-  let heightFit = null, massFit = null;
-  function renderForageCalibration(){
-    const heightPts = forageSamplesCache.filter(s => s.height_cm != null).map(s => ({ x: Number(s.ndvi_value), y: Number(s.height_cm) }));
-    const massPts = forageSamplesCache.filter(s => s.mass_kg_ha != null).map(s => ({ x: Number(s.ndvi_value), y: Number(s.mass_kg_ha) }));
-    heightFit = heightPts.length >= 3 ? linearFit(heightPts) : null;
-    massFit = massPts.length >= 3 ? linearFit(massPts) : null;
-    const info = document.getElementById('forageCalibrationInfo');
-    const lines = [];
-    if(heightFit) lines.push('Altura: ' + heightFit.n + ' amostra(s), R² = ' + heightFit.r2.toFixed(2));
-    else lines.push('Altura: ' + heightPts.length + ' amostra(s) com altura registrada (precisa de pelo menos 3).');
-    if(massFit) lines.push('Massa: ' + massFit.n + ' amostra(s), R² = ' + massFit.r2.toFixed(2));
-    else lines.push('Massa: ' + massPts.length + ' amostra(s) com massa registrada (precisa de pelo menos 3).');
-    info.innerHTML = lines.join('<br>');
-  }
-
-  document.getElementById('estimateForageBtn').addEventListener('click', async () => {
-    const farmId = document.getElementById('forageFarmSelect').value;
-    const farm = farms.find(f => String(f.id) === farmId);
-    const dateStr = document.getElementById('forageEstimateDateInput').value;
-    const mapId = document.getElementById('forageEstimateMapSelect').value;
-    const targetDef = mapDefinitions.find(m => String(m.id) === mapId);
-    const statusEl = document.getElementById('forageEstimateStatus');
-    if(!farm){ statusEl.textContent = 'Selecione uma fazenda.'; return; }
-    if(!targetDef){ statusEl.textContent = 'Escolha a qual mapa essa estimativa pertence.'; return; }
-    if(!dateStr){ statusEl.textContent = 'Escolha a data de referência.'; return; }
-    if(!heightFit && !massFit){ statusEl.textContent = 'Ainda não há calibração suficiente (mínimo 3 amostras de altura ou de massa).'; return; }
-
-    let ok = 0, fail = 0;
-    const allFeatures = getAllFarmFeatures(farm);
-    for(const feature of allFeatures){
-      statusEl.textContent = 'Lendo NDVI de "' + feature.name + '"… (' + (ok + fail + 1) + '/' + allFeatures.length + ')';
-      try{
-        const ring = feature.parts[0][0];
-        const ndviValue = await computeTalhaoNDVI(ring, dateStr);
-        const values = { 'NDVI': Number(ndviValue.toFixed(3)) };
-        if(heightFit) values['Altura estimada (cm)'] = Number((heightFit.a + heightFit.b * ndviValue).toFixed(1));
-        if(massFit) values['Massa estimada (kg MS/ha)'] = Math.round(massFit.a + massFit.b * ndviValue);
-        await sb.from('category_data').upsert({
-          category: 'pastagens', map_definition_id: targetDef.id, farm_id: farm.id, farm_name: farm.name,
-          talhao_name: feature.name, sample_date: dateStr, values
-        }, { onConflict: 'category,map_definition_id,farm_id,talhao_name,sample_date' });
-        ok++;
-      }catch(err){ fail++; }
-    }
-    statusEl.textContent = ok + ' talhão(ões) estimado(s) e salvos como dado de "Manejo de pastagens" em ' + dateStr + ', ' + fail + ' com falha. Vá em "Mapa" e crie/escolha um mapa com as variáveis "NDVI", "Altura estimada (cm)" e/ou "Massa estimada (kg MS/ha)" para visualizar.';
-    if(ok > 0 && currentCategory === 'pastagens') refreshAvailableDates();
-  });
-
   // ================= AUTENTICAÇÃO (login / cadastro / papel) =================
   let currentUser = null;
   let currentRole = null;
