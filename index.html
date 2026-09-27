@@ -1025,6 +1025,7 @@
                 <button type="button" class="mini-btn ndvi-layer-btn active" data-layer="satellite">Satélite</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndviSentinel">NDVI Sentinel-2</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="agricultureSentinel">Agriculture</button>
+                <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndreSentinel">NDRE</button>
               </div>
             </div>
           </div>
@@ -1299,9 +1300,18 @@
     attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
     maxZoom: 19, crossOrigin: true
   });
+  // NDRE (red-edge based) — more sensitive to chlorophyll/nitrogen than
+  // NDVI, used for forage quality (protein) rather than mass/height.
+  // Needs a custom "NDRE" layer created in the Sentinel Hub configuration.
+  const ndreSentinel = new AuthenticatedWMSLayer('https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID, {
+    layers: 'NDRE', format: 'image/png', transparent: true, version: '1.3.0',
+    time: sentinelTimeRange(defaultSentinelEndDate()), maxcc: 40,
+    attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
+    maxZoom: 19, crossOrigin: true
+  });
   // Sentinel layers that use a date range and should transparent-outline
   // the talhões so the imagery underneath stays fully visible.
-  const TIME_BASED_SENTINEL_LAYERS = [ndviSentinel, agricultureSentinel];
+  const TIME_BASED_SENTINEL_LAYERS = [ndviSentinel, agricultureSentinel, ndreSentinel];
 
   const WhiteBackgroundLayer = L.GridLayer.extend({
     createTile: function(coords, done){
@@ -1673,7 +1683,7 @@
   }
 
   function switchMapLayer(key){
-    const layers = { satellite: satellite, ndviSentinel: ndviSentinel, agricultureSentinel: agricultureSentinel };
+    const layers = { satellite: satellite, ndviSentinel: ndviSentinel, agricultureSentinel: agricultureSentinel, ndreSentinel: ndreSentinel };
     const chosen = layers[key];
     if(!chosen || chosen === currentBaseLayer) return;
     if(map.hasLayer(currentBaseLayer)) map.removeLayer(currentBaseLayer);
@@ -1681,9 +1691,12 @@
     currentBaseLayer = chosen;
     updateNdviDateControlVisibility();
     document.querySelectorAll('.ndvi-layer-btn').forEach(b => b.classList.toggle('active', b.dataset.layer === key));
-    if(TIME_BASED_SENTINEL_LAYERS.includes(chosen)){
+    if(TIME_BASED_SENTINEL_LAYERS.includes(chosen) || currentSubtab === 'forragem'){
       // Force every talhão to a transparent, black-outline style so the
       // actual satellite-derived colors stay fully visible underneath.
+      // On the "NDVI" tab this applies no matter which of the three layer
+      // buttons (Satélite/NDVI/Agriculture) is picked — that tab never
+      // paints a primary-variable color.
       placemarkLayers.forEach(l => l.setStyle(NDVI_TALHAO_STYLE));
     } else {
       // Leaving one of these layers: restore whatever styling should
@@ -5129,6 +5142,7 @@
 
   // ================= FORRAGEM: NDVI zonal + calibração + estimativa =================
   const SENTINEL_NDVI_RAW_LAYER = 'NDVI_RAW';
+  const SENTINEL_NDRE_RAW_LAYER = 'NDRE_RAW';
 
   function pointInPolygon(x, y, poly){
     let inside = false;
@@ -5201,17 +5215,18 @@
     if(count === 0) throw new Error('Nenhum pixel válido encontrado para esse talhão nessa data (nuvens ou área muito pequena). Tente outra data.');
     return sum / count;
   }
-  // Reads NDVI around a single field point (not a whole-talhão average) —
-  // used for calibration samples, since large/variable talhões make a
-  // polygon-wide average unreliable for matching one exact measurement.
-  async function computeNdviAtPoint(lat, lng, dateStr, bufferMeters){
+  // Reads a raw index (NDVI or NDRE) around a single field point (not a
+  // whole-talhão average) — used for calibration samples, since large/
+  // variable talhões make a polygon-wide average unreliable for matching
+  // one exact measurement.
+  async function computeIndexAtPoint(lat, lng, dateStr, rawLayerName, bufferMeters){
     if(bufferMeters == null) bufferMeters = 15;
     const center = L.CRS.EPSG3857.project(L.latLng(lat, lng));
     const minX = center.x - bufferMeters, maxX = center.x + bufferMeters;
     const minY = center.y - bufferMeters, maxY = center.y + bufferMeters;
     const W = 32, H = 32;
     const url = 'https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID +
-      '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=' + SENTINEL_NDVI_RAW_LAYER +
+      '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=' + rawLayerName +
       '&FORMAT=image/png&TRANSPARENT=true&WIDTH=' + W + '&HEIGHT=' + H +
       '&CRS=EPSG:3857&BBOX=' + [minX, minY, maxX, maxY].join(',') +
       '&TIME=' + encodeURIComponent(sentinelTimeRange(dateStr)) + '&MAXCC=60';
@@ -5234,6 +5249,12 @@
     }
     if(count === 0) throw new Error('Nenhum pixel válido encontrado nesse ponto/data (nuvens). Tente outra data.');
     return sum / count;
+  }
+  function computeNdviAtPoint(lat, lng, dateStr, bufferMeters){
+    return computeIndexAtPoint(lat, lng, dateStr, SENTINEL_NDVI_RAW_LAYER, bufferMeters);
+  }
+  function computeNdreAtPoint(lat, lng, dateStr, bufferMeters){
+    return computeIndexAtPoint(lat, lng, dateStr, SENTINEL_NDRE_RAW_LAYER, bufferMeters);
   }
   // Ray-casting point-in-polygon test directly on [lat,lng] rings (same
   // algorithm as pointInPolygon above, just without needing a pixel
@@ -5590,6 +5611,7 @@
           '<div class="saved-item" data-id="' + s.id + '">' +
             '<div class="saved-item-info"><div class="saved-item-name">' + escapeHtml(s.talhao_name || '(fora de talhão conhecido)') + '</div>' +
             '<div class="saved-item-date">' + formatDateBR(s.sample_date) + ' — NDVI ' + Number(s.ndvi_value).toFixed(3) +
+              (s.ndre_value != null ? ' · NDRE ' + Number(s.ndre_value).toFixed(3) : '') +
               (s.height_cm != null ? ' · ' + s.height_cm + ' cm' : '') +
               (s.mass_kg_ha != null ? ' · ' + s.mass_kg_ha + ' kg MS/ha' : '') + '</div></div>' +
             '<div class="saved-item-actions"><button type="button" class="mini-btn danger forage-delete">×</button></div>' +
@@ -5649,19 +5671,28 @@
     if(!dateStr){ document.getElementById('forageSampleStatus').textContent = 'Escolha a data da amostra.'; return; }
     if(!heightVal && !massVal){ document.getElementById('forageSampleStatus').textContent = 'Informe pelo menos altura ou massa.'; return; }
 
-    document.getElementById('forageSampleStatus').textContent = 'Buscando NDVI no Sentinel-2…';
+    document.getElementById('forageSampleStatus').textContent = 'Buscando NDVI e NDRE no Sentinel-2…';
     try{
       const ndviValue = await computeNdviAtPoint(pendingForagePoint.lat, pendingForagePoint.lng, dateStr);
+      let ndreValue = null, ndreNote = '';
+      try{
+        ndreValue = await computeNdreAtPoint(pendingForagePoint.lat, pendingForagePoint.lng, dateStr);
+      }catch(ndreErr){
+        // Optional for now: don't block saving the sample if the NDRE_RAW
+        // layer isn't set up yet in Sentinel Hub, or the request fails.
+        ndreNote = ' (NDRE não disponível: ' + ndreErr.message + ')';
+      }
       const payload = {
         farm_id: farm.id, farm_name: farm.name, talhao_name: talhaoName, sample_date: dateStr,
         lat: pendingForagePoint.lat, lng: pendingForagePoint.lng,
         height_cm: heightVal ? Number(heightVal) : null,
         mass_kg_ha: massVal ? Number(massVal) : null,
-        ndvi_value: ndviValue
+        ndvi_value: ndviValue,
+        ndre_value: ndreValue
       };
       const { error } = await sb.from('forage_samples').insert(payload);
       if(error) throw error;
-      document.getElementById('forageSampleStatus').textContent = 'Amostra salva. NDVI encontrado: ' + ndviValue.toFixed(3) + '.';
+      document.getElementById('forageSampleStatus').textContent = 'Amostra salva. NDVI: ' + ndviValue.toFixed(3) + (ndreValue != null ? ', NDRE: ' + ndreValue.toFixed(3) : '') + '.' + ndreNote;
       document.getElementById('forageHeightInput').value = '';
       document.getElementById('forageMassInput').value = '';
       pendingForagePoint = null;
