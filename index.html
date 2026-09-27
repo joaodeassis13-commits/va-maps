@@ -1046,12 +1046,20 @@
           <div id="panel-dossel" style="display:none;">
             <div class="section">
               <div class="section-head"><h2>Ver mapa de dossel forrageiro</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">Massa e proteína são calculadas pelo sistema, com base na espécie cadastrada de cada talhão (em Fazendas → Espécie forrageira por talhão) e na imagem de satélite escolhida na caixa "Data" dentro do mapa.</div>
               <label class="field-label">Mapa</label>
               <select id="dosselMapSelect"><option value="">Selecione…</option></select>
               <label class="field-label">Variável principal</label>
-              <select id="dosselVariableSelect"><option value="">Selecione um mapa primeiro…</option></select>
-              <label class="field-label">Data</label>
-              <select id="dosselDateSelect"><option value="">Mais recente</option></select>
+              <select id="dosselVariableSelect">
+                <option value="__massa">Massa de forragem (kg MS/ha)</option>
+                <option value="__proteina">Proteína bruta (%)</option>
+              </select>
+              <label class="field-label">Variáveis secundárias</label>
+              <div class="multi-select" id="dosselSecondaryVarMultiSelect">
+                <button type="button" class="multi-select-trigger" id="dosselSecondaryVarTrigger">Nenhuma selecionada</button>
+                <div class="multi-select-panel" id="dosselSecondaryVarPanel" style="display:none;"></div>
+              </div>
+              <div class="field-status" style="margin-top:8px;">A data é escolhida na caixa "Data" dentro do mapa (campos "Data dos rótulos" e "Data da imagem").</div>
               <button class="primary-btn" id="renderDosselBtn">Mostrar no mapa</button>
               <div class="field-status" id="dosselRenderStatus"></div>
             </div>
@@ -1529,6 +1537,23 @@
       '</div>' +
       '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="ndviDateNavStatus"></div>' +
       '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">"Data anterior"/"Data seguinte" só trocam a imagem de satélite — os rótulos não mudam com elas. Se o mês não tiver upload de dados, dá pra ver o mapa sem rótulos.</div>' +
+      '</div>' +
+      '<div id="dateBoxDosselSection" style="display:none;">' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Ano</label>' +
+      '<input type="text" id="dosselYearInput" placeholder="ex.: 2026" style="width:100%;margin-bottom:6px;box-sizing:border-box;">' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Mês</label>' +
+      '<select id="dosselMonthSelect" style="width:100%;margin-bottom:6px;"></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Data dos rótulos</label>' +
+      '<select id="dosselLabelDateSelect" style="width:100%;margin-bottom:6px;"><option value="">Sem rótulos</option></select>' +
+      '<label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:2px;">Data da imagem</label>' +
+      '<select id="dosselImageDateSelect" style="width:100%;margin-bottom:6px;"><option value="">Carregando…</option></select>' +
+      '<button type="button" class="primary-btn" id="dosselDateApplyBtn" style="margin:0;width:100%;padding:6px;font-size:12px;">Aplicar</button>' +
+      '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        '<button type="button" class="mini-btn" id="dosselDatePrevBtn" style="flex:1;">← Data anterior</button>' +
+        '<button type="button" class="mini-btn" id="dosselDateNextBtn" style="flex:1;">Data seguinte →</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="dosselDateNavStatus"></div>' +
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">"Data da imagem" é a data usada pra calcular massa/proteína de cada talhão. "Data anterior"/"Data seguinte" só trocam essa data, sem mudar os rótulos.</div>' +
       '</div>';
     makeCollapsible(div, 'Data', body);
     L.DomEvent.disableClickPropagation(div);
@@ -1649,23 +1674,27 @@
   let ndviDateControlDiv = null;
   function updateNdviDateControlVisibility(){
     if(!ndviDateControlDiv) return;
-    // Superseded by "Data da imagem" inside the "Data" box for this tab.
-    if(currentSubtab === 'forragem'){ ndviDateControlDiv.style.display = 'none'; return; }
+    // Superseded by "Data da imagem" inside the "Data" box for these tabs.
+    if(currentSubtab === 'forragem' || currentSubtab === 'dossel'){ ndviDateControlDiv.style.display = 'none'; return; }
     const isNdviActive = TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer);
     ndviDateControlDiv.style.display = isNdviActive ? 'block' : 'none';
   }
   // "Camadas NDVI" never paints a primary variable, so the "Satélite"
   // basemap-date box and the "Faixas" category filter box (both about
-  // painted faixas/talhões) don't apply there and stay hidden.
+  // painted faixas/talhões) don't apply there and stay hidden. Both
+  // "Camadas NDVI" and "Dossel forrageiro" use the "Data" box's
+  // Ano/Mês/rótulos/imagem fields instead of the plain Ano/Mês/Período ones.
   function updatePlainModeControlsVisibility(){
-    const hide = currentSubtab === 'forragem';
-    if(satelliteDateControlDiv) satelliteDateControlDiv.style.display = hide ? 'none' : '';
-    if(categoryFilterControlDiv) categoryFilterControlDiv.style.display = hide ? 'none' : '';
+    const hideFaixas = currentSubtab === 'forragem';
+    if(satelliteDateControlDiv) satelliteDateControlDiv.style.display = hideFaixas ? 'none' : '';
+    if(categoryFilterControlDiv) categoryFilterControlDiv.style.display = hideFaixas ? 'none' : '';
     updateNdviDateControlVisibility();
     const normalSection = document.getElementById('dateBoxNormalSection');
     const ndviSection = document.getElementById('dateBoxNdviSection');
-    if(normalSection) normalSection.style.display = hide ? 'none' : '';
-    if(ndviSection) ndviSection.style.display = hide ? '' : 'none';
+    const dosselSection = document.getElementById('dateBoxDosselSection');
+    if(normalSection) normalSection.style.display = (currentSubtab === 'forragem' || currentSubtab === 'dossel') ? 'none' : '';
+    if(ndviSection) ndviSection.style.display = currentSubtab === 'forragem' ? '' : 'none';
+    if(dosselSection) dosselSection.style.display = currentSubtab === 'dossel' ? '' : 'none';
   }
 
   function switchMapLayer(key){
@@ -4493,8 +4522,9 @@
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const sel = document.getElementById('mapaVariableSelect');
+    const computedOpts = (def && def.category === 'pastagens') ? '<option value="__massa">Massa de forragem (kg MS/ha)</option><option value="__proteina">Proteína bruta (%)</option>' : '';
     sel.innerHTML = def
-      ? ('<option value="__talhao">Talhões</option>' + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
+      ? ('<option value="__talhao">Talhões</option>' + computedOpts + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
       : '<option value="">—</option>';
     renderSecondaryVarOptions();
   }
@@ -4616,19 +4646,45 @@
     if(retWrap && !retWrap.contains(e.target)) document.getElementById('retiroPanel').style.display = 'none';
   });
 
+  // Fixed color ramps for the two Dossel forrageiro built-in computed
+  // variables — these aren't configured per-map like uploaded variables;
+  // they're the same everywhere, similar to the NDVI legend.
+  const MASSA_FAIXAS = [
+    { min: null, max: 500, color: '#ffffcc', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 500, max: 1500, color: '#d9ef8b', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 1500, max: 2500, color: '#a6d96a', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 2500, max: 3500, color: '#66bd63', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 3500, max: 5000, color: '#1a9850', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 5000, max: null, color: '#006837', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 }
+  ];
+  const PROTEINA_FAIXAS = [
+    { min: null, max: 6, color: '#a50026', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 6, max: 8, color: '#f46d43', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 8, max: 10, color: '#fee08b', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 10, max: 12, color: '#d9ef8b', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 12, max: 14, color: '#66bd63', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 },
+    { min: 14, max: null, color: '#1a9850', label: '', opacityPercent: 85, borderColor: '#12181A', borderWidth: 1 }
+  ];
   async function performMapRender(){
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const rawVarVal = document.getElementById('mapaVariableSelect').value;
     const isBuiltinTalhao = rawVarVal === '__talhao';
-    const varIdx = isBuiltinTalhao ? -1 : Number(rawVarVal);
+    const isBuiltinMassa = rawVarVal === '__massa';
+    const isBuiltinProteina = rawVarVal === '__proteina';
+    const isBuiltinComputed = isBuiltinMassa || isBuiltinProteina;
+    const varIdx = (isBuiltinTalhao || isBuiltinComputed) ? -1 : Number(rawVarVal);
     const secondaryIdxs = getSelectedSecondaryIdxs();
     const startDate = document.getElementById('mapCtrlStartDateSelect').value || null;
     const endDate = document.getElementById('mapCtrlEndDateSelect').value || null;
     const statusEl = document.getElementById('mapaStatus');
-    if(!def || (!isBuiltinTalhao && !Number.isInteger(varIdx))){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
+    if(!def || (!isBuiltinTalhao && !isBuiltinComputed && !Number.isInteger(varIdx))){ statusEl.textContent = 'Escolha um mapa e uma variável principal.'; return; }
     const varDef = isBuiltinTalhao
       ? { name: '__talhao', mode: 'categorical', categoryRows: [], noData: newNoData(), decimals: undefined, isCurrency: false }
+      : isBuiltinMassa
+      ? { name: 'Massa de forragem (kg MS/ha)', mode: 'numeric', intervalRows: MASSA_FAIXAS, noData: newNoData(), decimals: 0, isCurrency: false }
+      : isBuiltinProteina
+      ? { name: 'Proteína bruta (%)', mode: 'numeric', intervalRows: PROTEINA_FAIXAS, noData: newNoData(), decimals: 1, isCurrency: false }
       : def.variables[varIdx];
     if(!varDef){ statusEl.textContent = 'Variável inválida.'; return; }
     const secondaryNames = secondaryIdxs.map(i => def.variables[i] && def.variables[i].name).filter(Boolean);
@@ -5207,6 +5263,10 @@
   const SENTINEL_NDVI_RAW_LAYER = 'NDVI_RAW';
   const SENTINEL_NDRE_RAW_LAYER = 'NDRE_RAW';
   const SENTINEL_GNDVI_RAW_LAYER = 'GNDVI_RAW';
+  const SENTINEL_PANICUM_BANDS_RAW_LAYER = 'PANICUM_BANDS_RAW';
+  // Reflectance ceiling used to encode/decode the 3 raw bands of
+  // PANICUM_BANDS_RAW into a byte each (see the evalscript notes below).
+  const PANICUM_BANDS_MAX_REFLECTANCE = 0.6;
 
   function pointInPolygon(x, y, poly){
     let inside = false;
@@ -5291,6 +5351,103 @@
   function computeTalhaoGNDVI(ring, dateStr){
     return computeTalhaoIndex(ring, dateStr, SENTINEL_GNDVI_RAW_LAYER);
   }
+  // Reads a 3-channel raw layer (R=740nm, G=783nm, B=865nm reflectance,
+  // each encoded 0-PANICUM_BANDS_MAX_REFLECTANCE -> 0-255), averaged
+  // independently over a whole talhão polygon. Used for equations that
+  // need individual reflectance bands rather than a single normalized
+  // index (e.g. the Cisneros Garcia et al. 2020 Dall'Olmo formula).
+  async function computeTalhaoBands3(ring, dateStr, rawLayerName, maxReflectance){
+    const pts = ring.map(([lat, lng]) => L.CRS.EPSG3857.project(L.latLng(lat, lng)));
+    const minX = Math.min(...pts.map(p => p.x)), maxX = Math.max(...pts.map(p => p.x));
+    const minY = Math.min(...pts.map(p => p.y)), maxY = Math.max(...pts.map(p => p.y));
+    const W = 256, H = 256;
+    const url = 'https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID +
+      '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=' + rawLayerName +
+      '&FORMAT=image/png&TRANSPARENT=true&WIDTH=' + W + '&HEIGHT=' + H +
+      '&CRS=EPSG:3857&BBOX=' + [minX, minY, maxX, maxY].join(',') +
+      '&TIME=' + encodeURIComponent(sentinelTimeRange(dateStr)) + '&MAXCC=60';
+
+    const img = await loadImageWithCORS(url);
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, W, H);
+    let data;
+    try{ data = ctx.getImageData(0, 0, W, H).data; }
+    catch(e){ throw new Error('Não foi possível ler os pixels da imagem (bloqueio de segurança do navegador).'); }
+
+    const pxPoly = pts.map(p => [
+      (p.x - minX) / (maxX - minX) * W,
+      (1 - (p.y - minY) / (maxY - minY)) * H
+    ]);
+
+    let sum1 = 0, sum2 = 0, sum3 = 0, count = 0;
+    for(let y = 0; y < H; y++){
+      for(let x = 0; x < W; x++){
+        if(!pointInPolygon(x + 0.5, y + 0.5, pxPoly)) continue;
+        const idx = (y * W + x) * 4;
+        const mask = data[idx + 3];
+        if(mask < 128) continue;
+        sum1 += (data[idx] / 255) * maxReflectance;
+        sum2 += (data[idx+1] / 255) * maxReflectance;
+        sum3 += (data[idx+2] / 255) * maxReflectance;
+        count++;
+      }
+    }
+    if(count === 0) throw new Error('Nenhum pixel válido encontrado para esse talhão nessa data (nuvens ou área muito pequena). Tente outra data.');
+    return { ch1: sum1 / count, ch2: sum2 / count, ch3: sum3 / count };
+  }
+  // R740, R783, R865 reflectance (0-1), averaged over the talhão — the
+  // three bands the Cisneros Garcia et al. (2020) Dall'Olmo productivity
+  // formula needs for Panicum.
+  async function computeTalhaoPanicumBands(ring, dateStr){
+    const { ch1, ch2, ch3 } = await computeTalhaoBands3(ring, dateStr, SENTINEL_PANICUM_BANDS_RAW_LAYER, PANICUM_BANDS_MAX_REFLECTANCE);
+    return { r740: ch1, r783: ch2, r865: ch3 };
+  }
+
+  // ---- Dossel forrageiro: espécie forrageira -> fórmula de massa ----
+  // Groups the free-text species name (as typed in "Espécie forrageira por
+  // talhão") into one of the 3 literature equations discussed. Checked in
+  // order: Humidícola/Dictioneura first (more specific), then Panicum,
+  // else Bretas et al. (2021) — the default/fallback for Urochloa
+  // brizantha/decumbens/ruziziensis and Andropogon.
+  function classifySpeciesGroup(especie){
+    const n = normalize(especie || '');
+    if(/humidicola|dictioneura|dictyoneura|llanero/.test(n)) return 'humidicola';
+    if(/panicum|mombaca|mombasa|tanzania|massai|tamani|aruana|coloniao|zuri|quenia|myagui|miagi|tobiata/.test(n)) return 'panicum';
+    return 'brachiaria';
+  }
+  // Massa de forragem (kg MS/ha) — dispatches to the equation matching
+  // the talhão's registered species.
+  async function computeMassaForragemTalhao(ring, dateStr, especie){
+    const group = classifySpeciesGroup(especie);
+    if(group === 'humidicola'){
+      // Díaz Giraldo et al. (2021), NDVI Sentinel-2A, R²=0,712
+      const ndvi = await computeTalhaoNDVI(ring, dateStr);
+      return 1547.7 * ndvi - 572.71;
+    }
+    if(group === 'panicum'){
+      // Cisneros Garcia et al. (2020), Dall'Olmo productivity formula
+      const { r740, r783, r865 } = await computeTalhaoPanicumBands(ring, dateStr);
+      return 218.6 * Math.exp(7.52 * r865 * (1 / r783 - 1 / r740));
+    }
+    // Bretas et al. (2021): massa fresca × teor de MS
+    const ndvi = await computeTalhaoNDVI(ring, dateStr);
+    const massaFresca = 42340 * ndvi - 10450;
+    const teorMS = -88.8984 * ndvi + 92.3287; // %
+    return massaFresca * (teorMS / 100);
+  }
+  // Proteína bruta (%) — Díaz Giraldo et al. (2023), GNDVI. The published
+  // model is a GAM (smooth curve) with no published coefficients, so this
+  // is a quadratic regression fitted to ~400 points digitized directly
+  // off the published chart (GNDVI x Proteína crua g/kg), R²=0,93 against
+  // the digitized curve. The parabola's vertex sits at GNDVI≈0,64 — far
+  // beyond any real pasture reading — so unlike a clamped/piecewise fit,
+  // it keeps rising past GNDVI=0,345 instead of saturating.
+  function proteinaBrutaFromGndvi(gndvi){
+    const pbGkg = -3202.93 * gndvi * gndvi + 4100.65 * gndvi - 891.29; // g/kg
+    return Math.max(0, pbGkg / 10); // g/kg -> %, floored at 0 for degenerate inputs
+  }
   // Reads a raw index (NDVI or NDRE) around a single field point (not a
   // whole-talhão average) — used for calibration samples, since large/
   // variable talhões make a polygon-wide average unreliable for matching
@@ -5351,40 +5508,58 @@
     return { a, b, r2, n };
   }
 
-  // ---------- Dossel forrageiro: its own map/variable/date selection,
-  // separate from the shared "Mapa" tab's fields, though it drives the
-  // same underlying render pipeline once "Mostrar no mapa" is clicked. ----------
+  // ---------- Dossel forrageiro: its own map/secondary-vars/date selection,
+  // separate from the "Mapa" and "Camadas NDVI" tabs. The primary variable
+  // is always "Massa de forragem" or "Proteína bruta", computed by the
+  // system per talhão (species + Sentinel-2 imagery), not uploaded data. ----------
   function populateDosselMapSelect(){
     const sel = document.getElementById('dosselMapSelect');
     const relevant = mapDefinitions.filter(m => m.category === 'pastagens' && !myHiddenMapIds.has(String(m.id)));
     const prev = sel.value;
     sel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
     if(relevant.some(m => String(m.id) === prev)) sel.value = prev;
-    populateDosselVariableSelect();
+    renderDosselSecondaryVarOptions();
   }
-  function populateDosselVariableSelect(){
+  function renderDosselSecondaryVarOptions(){
     const defId = document.getElementById('dosselMapSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
-    const sel = document.getElementById('dosselVariableSelect');
-    sel.innerHTML = def
-      ? ('<option value="__talhao">Talhões</option>' + def.variables.map((v,i) => '<option value="' + i + '">' + escapeHtml(v.name) + '</option>').join(''))
-      : '<option value="">Selecione um mapa primeiro…</option>';
+    const panel = document.getElementById('dosselSecondaryVarPanel');
+    if(!def){ panel.innerHTML = '<div class="multi-select-empty">Escolha um mapa primeiro.</div>'; updateDosselSecondaryVarTriggerLabel(); return; }
+    if(def.variables.length === 0){ panel.innerHTML = '<div class="multi-select-empty">Sem variáveis nesse mapa.</div>'; updateDosselSecondaryVarTriggerLabel(); return; }
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    panel.innerHTML = def.variables.map((v,i) => (
+      '<label><input type="checkbox" class="dossel-secondary-var-checkbox" value="' + i + '"' + (prevChecked.has(String(i)) ? ' checked' : '') + '> ' + escapeHtml(v.name) + '</label>'
+    )).join('');
+    updateDosselSecondaryVarTriggerLabel();
   }
-  async function refreshDosselDates(){
-    const mapId = document.getElementById('dosselMapSelect').value;
-    const sel = document.getElementById('dosselDateSelect');
-    if(!mapId){ sel.innerHTML = '<option value="">Mais recente</option>'; return; }
-    try{
-      const rows = await fetchAllRows(() => sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId));
-      const dates = Array.from(new Set(rows.map(r => r.sample_date))).sort();
-      sel.innerHTML = '<option value="">Mais recente</option>' + dates.slice().reverse().map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
-    }catch(err){
-      sel.innerHTML = '<option value="">Mais recente</option>';
-    }
+  function getSelectedDosselSecondaryIdxs(){
+    return Array.from(document.querySelectorAll('#dosselSecondaryVarPanel .dossel-secondary-var-checkbox:checked')).map(cb => Number(cb.value));
   }
+  function updateDosselSecondaryVarTriggerLabel(){
+    const defId = document.getElementById('dosselMapSelect').value;
+    const def = mapDefinitions.find(m => String(m.id) === defId);
+    const idxs = getSelectedDosselSecondaryIdxs();
+    const trigger = document.getElementById('dosselSecondaryVarTrigger');
+    if(idxs.length === 0) trigger.textContent = 'Nenhuma selecionada';
+    else if(idxs.length === 1 && def) trigger.textContent = def.variables[idxs[0]].name;
+    else trigger.textContent = idxs.length + ' selecionadas';
+  }
+  document.getElementById('dosselSecondaryVarPanel').addEventListener('change', (e) => {
+    if(e.target.classList.contains('dossel-secondary-var-checkbox')) updateDosselSecondaryVarTriggerLabel();
+  });
+  document.getElementById('dosselSecondaryVarTrigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById('dosselSecondaryVarPanel');
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
+  });
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('dosselSecondaryVarMultiSelect');
+    if(wrap && !wrap.contains(e.target)) document.getElementById('dosselSecondaryVarPanel').style.display = 'none';
+  });
   document.getElementById('dosselMapSelect').addEventListener('change', async () => {
-    populateDosselVariableSelect();
-    await refreshDosselDates();
+    renderDosselSecondaryVarOptions();
+    await refreshDosselLabelDates();
   });
 
   // ---------- Camadas NDVI: its own map/secondary-vars/date selection —
@@ -5440,25 +5615,26 @@
     await refreshNdviLabelDates();
   });
 
-  // ---- "Data" box (on the map) in Camadas NDVI mode: Ano (free text),
-  // Mês (no "Todos"), Data dos rótulos (upload dates), Data da imagem
-  // (real Sentinel-2 acquisition dates from the Sentinel Hub catalog). ----
-  function populateNdviMonthOptions(){
-    const sel = document.getElementById('ndviMonthSelect');
+  // ---- "Data" box (on the map): Ano (free text), Mês (no "Todos"), Data
+  // dos rótulos (upload dates) e Data da imagem (real Sentinel-2 acquisition
+  // dates) — shared logic between "Camadas NDVI" and "Dossel forrageiro",
+  // each with its own set of fields/state. ----
+  function populateMonthOptionsGeneric(monthSelectId){
+    const sel = document.getElementById(monthSelectId);
     const prev = sel.value;
     sel.innerHTML = Object.keys(MONTH_NAMES).map(m => '<option value="' + m + '">' + MONTH_NAMES[m] + '</option>').join('');
     sel.value = (prev && MONTH_NAMES[prev]) ? prev : String(new Date().getMonth() + 1).padStart(2, '0');
   }
-  function ensureNdviYearMonthDefaults(){
-    const yearInput = document.getElementById('ndviYearInput');
+  function ensureYearMonthDefaultsGeneric(yearInputId, monthSelectId){
+    const yearInput = document.getElementById(yearInputId);
     if(!yearInput.value.trim()) yearInput.value = String(new Date().getFullYear());
-    populateNdviMonthOptions();
+    populateMonthOptionsGeneric(monthSelectId);
   }
-  async function refreshNdviLabelDates(){
-    const sel = document.getElementById('ndviLabelDateSelect');
-    const mapId = document.getElementById('ndviMapSelect').value;
-    const year = document.getElementById('ndviYearInput').value.trim();
-    const month = document.getElementById('ndviMonthSelect').value;
+  async function refreshLabelDatesGeneric(mapSelectId, yearInputId, monthSelectId, labelSelectId){
+    const sel = document.getElementById(labelSelectId);
+    const mapId = document.getElementById(mapSelectId).value;
+    const year = document.getElementById(yearInputId).value.trim();
+    const month = document.getElementById(monthSelectId).value;
     if(!mapId || !year || !month){ sel.innerHTML = '<option value="">Sem rótulos</option>'; return; }
     try{
       const rows = await fetchAllRows(() => sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId));
@@ -5485,16 +5661,16 @@
     if(!Number.isFinite(minLat)) return null;
     return [minLng, minLat, maxLng, maxLat];
   }
-  let ndviImageDatesCache = [];
-  async function refreshNdviImageDates(){
-    const sel = document.getElementById('ndviImageDateSelect');
-    const year = document.getElementById('ndviYearInput').value.trim();
-    const month = document.getElementById('ndviMonthSelect').value;
-    if(!/^\d{4}$/.test(year) || !month){ sel.innerHTML = '<option value="">Escolha ano e mês</option>'; ndviImageDatesCache = []; return; }
+  const imageDatesCacheByKey = {}; // { ndvi: [...dates], dossel: [...dates] }
+  async function refreshImageDatesGeneric(cacheKey, yearInputId, monthSelectId, imageSelectId){
+    const sel = document.getElementById(imageSelectId);
+    const year = document.getElementById(yearInputId).value.trim();
+    const month = document.getElementById(monthSelectId).value;
+    if(!/^\d{4}$/.test(year) || !month){ sel.innerHTML = '<option value="">Escolha ano e mês</option>'; imageDatesCacheByKey[cacheKey] = []; return; }
     const farmName = document.getElementById('farmFilter').value;
     const farm = farms.find(f => f.name === farmName);
     const bbox = computeFarmBbox(farm);
-    if(!bbox){ sel.innerHTML = '<option value="">Selecione uma fazenda</option>'; ndviImageDatesCache = []; return; }
+    if(!bbox){ sel.innerHTML = '<option value="">Selecione uma fazenda</option>'; imageDatesCacheByKey[cacheKey] = []; return; }
     sel.innerHTML = '<option value="">Carregando…</option>';
     try{
       const token = await getSentinelToken();
@@ -5512,15 +5688,37 @@
         .filter(f => f.properties['eo:cloud_cover'] == null || f.properties['eo:cloud_cover'] <= 40)
         .map(f => f.properties.datetime.slice(0, 10))
       )).sort();
-      ndviImageDatesCache = dates;
+      imageDatesCacheByKey[cacheKey] = dates;
       if(dates.length === 0){ sel.innerHTML = '<option value="">Nenhuma imagem encontrada</option>'; return; }
       sel.innerHTML = dates.map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
       sel.value = dates[dates.length - 1];
     }catch(err){
       sel.innerHTML = '<option value="">Erro ao buscar imagens</option>';
-      ndviImageDatesCache = [];
+      imageDatesCacheByKey[cacheKey] = [];
     }
   }
+  function navigateImageDateGeneric(cacheKey, imageSelectId, navStatusId, direction, onChange){
+    const navStatusEl = document.getElementById(navStatusId);
+    const cache = imageDatesCacheByKey[cacheKey] || [];
+    if(cache.length === 0){ navStatusEl.textContent = 'Nenhuma imagem disponível.'; return; }
+    const sel = document.getElementById(imageSelectId);
+    let idx = cache.indexOf(sel.value);
+    if(idx === -1) idx = cache.length - 1;
+    const targetIdx = idx + direction;
+    if(targetIdx < 0 || targetIdx >= cache.length){
+      navStatusEl.textContent = direction < 0 ? 'Não há imagem anterior nesse mês.' : 'Não há imagem seguinte nesse mês.';
+      return;
+    }
+    navStatusEl.textContent = '';
+    const targetDate = cache[targetIdx];
+    sel.value = targetDate;
+    if(onChange) onChange(targetDate);
+  }
+
+  // ---- Camadas NDVI wrappers ----
+  function ensureNdviYearMonthDefaults(){ ensureYearMonthDefaultsGeneric('ndviYearInput', 'ndviMonthSelect'); }
+  async function refreshNdviLabelDates(){ await refreshLabelDatesGeneric('ndviMapSelect', 'ndviYearInput', 'ndviMonthSelect', 'ndviLabelDateSelect'); }
+  async function refreshNdviImageDates(){ await refreshImageDatesGeneric('ndvi', 'ndviYearInput', 'ndviMonthSelect', 'ndviImageDateSelect'); }
   document.getElementById('ndviYearInput').addEventListener('change', async () => {
     await Promise.all([refreshNdviLabelDates(), refreshNdviImageDates()]);
   });
@@ -5580,52 +5778,122 @@
   // shown (by date, within the real acquisition dates found for this
   // ano/mês) — the labels/talhões are left exactly as they are.
   function navigateNdviImageDate(direction){
-    const navStatusEl = document.getElementById('ndviDateNavStatus');
-    if(ndviImageDatesCache.length === 0){ navStatusEl.textContent = 'Nenhuma imagem disponível.'; return; }
-    const sel = document.getElementById('ndviImageDateSelect');
-    let idx = ndviImageDatesCache.indexOf(sel.value);
-    if(idx === -1) idx = ndviImageDatesCache.length - 1;
-    const targetIdx = idx + direction;
-    if(targetIdx < 0 || targetIdx >= ndviImageDatesCache.length){
-      navStatusEl.textContent = direction < 0 ? 'Não há imagem anterior nesse mês.' : 'Não há imagem seguinte nesse mês.';
-      return;
-    }
-    navStatusEl.textContent = '';
-    const targetDate = ndviImageDatesCache[targetIdx];
-    sel.value = targetDate;
-    TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: sentinelTimeRange(targetDate) }));
+    navigateImageDateGeneric('ndvi', 'ndviImageDateSelect', 'ndviDateNavStatus', direction, (targetDate) => {
+      TIME_BASED_SENTINEL_LAYERS.forEach(l => l.setParams({ time: sentinelTimeRange(targetDate) }));
+    });
   }
   document.getElementById('ndviDatePrevBtn').addEventListener('click', () => navigateNdviImageDate(-1));
   document.getElementById('ndviDateNextBtn').addEventListener('click', () => navigateNdviImageDate(1));
-  document.getElementById('renderDosselBtn').addEventListener('click', async () => {
+
+  // ---- Dossel forrageiro wrappers ----
+  function ensureDosselYearMonthDefaults(){ ensureYearMonthDefaultsGeneric('dosselYearInput', 'dosselMonthSelect'); }
+  async function refreshDosselLabelDates(){ await refreshLabelDatesGeneric('dosselMapSelect', 'dosselYearInput', 'dosselMonthSelect', 'dosselLabelDateSelect'); }
+  async function refreshDosselImageDates(){ await refreshImageDatesGeneric('dossel', 'dosselYearInput', 'dosselMonthSelect', 'dosselImageDateSelect'); }
+  document.getElementById('dosselYearInput').addEventListener('change', async () => {
+    await Promise.all([refreshDosselLabelDates(), refreshDosselImageDates()]);
+  });
+  document.getElementById('dosselMonthSelect').addEventListener('change', async () => {
+    await Promise.all([refreshDosselLabelDates(), refreshDosselImageDates()]);
+  });
+  // Unlike "Camadas NDVI", changing the image date here changes the
+  // computed mass/protein values themselves — so prev/next re-run the
+  // whole computation, not just swap a tile.
+  function navigateDosselImageDate(direction){
+    navigateImageDateGeneric('dossel', 'dosselImageDateSelect', 'dosselDateNavStatus', direction, () => applyDosselView());
+  }
+  document.getElementById('dosselDatePrevBtn').addEventListener('click', () => navigateDosselImageDate(-1));
+  document.getElementById('dosselDateNextBtn').addEventListener('click', () => navigateDosselImageDate(1));
+  // The actual render for Dossel forrageiro: computes massa/proteína per
+  // talhão (species + Sentinel-2 imagery at "Data da imagem"), saves it
+  // into category_data under "Data dos rótulos" (or the image date, if no
+  // rótulos date was picked), then lets the same battle-tested rendering
+  // pipeline used everywhere else paint it, exactly like an uploaded
+  // variable — the difference is only in the value's origin, not in how
+  // it gets drawn, filtered, popped-up, or charted.
+  async function applyDosselView(){
     const statusEl = document.getElementById('dosselRenderStatus');
+    const navStatusEl = document.getElementById('dosselDateNavStatus');
     const mapId = document.getElementById('dosselMapSelect').value;
-    const varVal = document.getElementById('dosselVariableSelect').value;
-    if(!mapId || varVal === ''){ statusEl.textContent = 'Escolha um mapa e uma variável.'; return; }
-    statusEl.textContent = 'Carregando…';
+    const varVal = document.getElementById('dosselVariableSelect').value; // '__massa' or '__proteina'
+    const def = mapDefinitions.find(m => String(m.id) === mapId);
+    const year = document.getElementById('dosselYearInput').value.trim();
+    const month = document.getElementById('dosselMonthSelect').value;
+    if(!def){ statusEl.textContent = 'Escolha um mapa.'; return; }
+    if(!year || !month){ statusEl.textContent = 'Escolha ano e mês na caixa "Data".'; return; }
+    const imageDate = document.getElementById('dosselImageDateSelect').value;
+    if(!imageDate){ statusEl.textContent = 'Escolha a "Data da imagem" na caixa "Data".'; return; }
+    const farmName = document.getElementById('farmFilter').value;
+    const farm = farms.find(f => f.name === farmName);
+    if(!farm){ statusEl.textContent = 'Selecione uma fazenda no topo do painel.'; return; }
+
+    if(navStatusEl) navStatusEl.textContent = '';
+    statusEl.textContent = 'Buscando espécies cadastradas…';
     try{
-      // Drive the shared "Mapa" viewing fields with this selection, then
-      // trigger the same rendering pipeline used there — this keeps a
-      // single, battle-tested painting/chart engine instead of a second
-      // parallel one, even though the selection fields themselves are
-      // dedicated to this tab.
-      forcePlainStyleMode = false;
+      const { data: speciesRows, error: speciesErr } = await sb.from('talhao_species').select('*').eq('farm_id', farm.id);
+      if(speciesErr) throw speciesErr;
+      const speciesByTalhao = new Map((speciesRows || []).map(r => [normalize(r.talhao_name), r.especie]));
+
+      const allFeatures = getAllFarmFeatures(farm);
+      const boundary = detectBoundaryFeature(allFeatures);
+      const talhaoFeatures = allFeatures.filter(f => f !== boundary);
+      const varName = varVal === '__proteina' ? 'Proteína bruta (%)' : 'Massa de forragem (kg MS/ha)';
+      const labelDate = document.getElementById('dosselLabelDateSelect').value;
+      const rowDate = labelDate || imageDate;
+
+      let ok = 0, skipped = 0, fail = 0;
+      for(let i = 0; i < talhaoFeatures.length; i++){
+        const feature = talhaoFeatures[i];
+        statusEl.textContent = 'Calculando "' + feature.name + '"… (' + (i+1) + '/' + talhaoFeatures.length + ')';
+        const ring = feature.parts[0][0];
+        const especie = speciesByTalhao.get(normalize(feature.name));
+        try{
+          let value;
+          if(varVal === '__proteina'){
+            const gndvi = await computeTalhaoGNDVI(ring, imageDate);
+            value = proteinaBrutaFromGndvi(gndvi);
+          }else{
+            if(!especie){ skipped++; continue; }
+            value = await computeMassaForragemTalhao(ring, imageDate, especie);
+          }
+          const decimals = varVal === '__proteina' ? 1 : 0;
+          await sb.from('category_data').upsert({
+            category: currentCategory, map_definition_id: def.id, farm_id: farm.id, farm_name: farm.name,
+            talhao_name: feature.name, sample_date: rowDate,
+            values: { [varName]: Number(value.toFixed(decimals)) }
+          }, { onConflict: 'category,map_definition_id,farm_id,talhao_name,sample_date' });
+          ok++;
+        }catch(err){ fail++; }
+      }
+
       document.getElementById('mapaSelect').value = mapId;
       populateMapaVariableSelect();
       document.getElementById('mapaVariableSelect').value = varVal;
       renderSecondaryVarOptions();
-      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => { cb.checked = false; });
+      const dosselIdxs = getSelectedDosselSecondaryIdxs();
+      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => {
+        cb.checked = dosselIdxs.includes(Number(cb.value));
+      });
       updateSecondaryVarTriggerLabel();
       await refreshAvailableDates();
-      const chosenDate = document.getElementById('dosselDateSelect').value;
-      document.getElementById('mapCtrlStartDateSelect').value = chosenDate;
-      document.getElementById('mapCtrlEndDateSelect').value = chosenDate;
-      statusEl.textContent = '';
+      document.getElementById('mapCtrlStartDateSelect').value = rowDate;
+      document.getElementById('mapCtrlEndDateSelect').value = rowDate;
+
+      statusEl.textContent = ok + ' talhão(ões) calculado(s)'
+        + (skipped > 0 ? ', ' + skipped + ' sem espécie cadastrada' : '')
+        + (fail > 0 ? ', ' + fail + ' com falha (nuvens/sem imagem)' : '') + '.';
+      forcePlainStyleMode = false;
+      suppressLabelsMode = false;
       await performMapRender();
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
     }
+  }
+  document.getElementById('renderDosselBtn').addEventListener('click', async () => {
+    ensureDosselYearMonthDefaults();
+    await Promise.all([refreshDosselLabelDates(), refreshDosselImageDates()]);
+    await applyDosselView();
   });
+  document.getElementById('dosselDateApplyBtn').addEventListener('click', () => applyDosselView());
   // ================= AUTENTICAÇÃO (login / cadastro / papel) =================
   let currentUser = null;
   let currentRole = null;
