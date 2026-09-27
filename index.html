@@ -297,6 +297,7 @@
     display: none !important;
   }
 
+  #panel-forragem{ align-items: stretch; }
   .section{
     background: var(--panel-alt);
     border: 1px solid var(--border);
@@ -737,9 +738,9 @@
       <div class="sub-tabs" id="subTabs" style="display:none;">
         <button type="button" class="sub-tab active" data-subtab="upload">Upload de dados</button>
         <button type="button" class="sub-tab" data-subtab="mapa">Mapa</button>
+        <button type="button" class="sub-tab" data-subtab="forragem" id="forragemTabBtn" style="display:none;">NDVI</button>
         <button type="button" class="sub-tab" data-subtab="dossel" id="dosselTabBtn" style="display:none;">Dossel forrageiro</button>
         <button type="button" class="sub-tab" data-subtab="capturar">Registrar imagem</button>
-        <button type="button" class="sub-tab" data-subtab="forragem" id="forragemTabBtn" style="display:none;">Camadas NDVI</button>
         <button type="button" class="sub-tab" id="togglePanelBtn" style="margin-left:auto;">Ocultar campos</button>
       </div>
 
@@ -998,22 +999,27 @@
           </div>
 
           <div id="panel-forragem" style="display:none;">
-            <div class="section">
-              <div class="section-head"><h2>Ver camada NDVI</h2></div>
-              <div class="field-status" style="margin-bottom:8px;">Aqui os talhões não são pintados por variável principal — clique num talhão pra ver as variáveis secundárias escolhidas abaixo.</div>
-              <label class="field-label">Mapa</label>
-              <select id="ndviMapSelect"><option value="">Selecione…</option></select>
-              <label class="field-label">Variáveis secundárias</label>
-              <div class="multi-select" id="ndviSecondaryVarMultiSelect">
-                <button type="button" class="multi-select-trigger" id="ndviSecondaryVarTrigger">Nenhuma selecionada</button>
-                <div class="multi-select-panel" id="ndviSecondaryVarPanel" style="display:none;"></div>
+            <div class="section" style="flex:1 1 0; min-width:0;">
+              <div class="section-head"><h2>Rótulos</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">Os talhões não são pintados por variável principal — clique num pra ver as secundárias. A data é escolhida na caixa "Data" dentro do mapa.</div>
+              <div style="display:flex; align-items:center; gap:12px; flex-wrap:nowrap;">
+                <div style="flex:1; min-width:0;">
+                  <label class="field-label">Mapa</label>
+                  <select id="ndviMapSelect"><option value="">Selecione…</option></select>
+                </div>
+                <div style="flex:1; min-width:0;">
+                  <label class="field-label">Variáveis secundárias</label>
+                  <div class="multi-select" id="ndviSecondaryVarMultiSelect">
+                    <button type="button" class="multi-select-trigger" id="ndviSecondaryVarTrigger">Nenhuma selecionada</button>
+                    <div class="multi-select-panel" id="ndviSecondaryVarPanel" style="display:none;"></div>
+                  </div>
+                </div>
+                <button class="primary-btn" id="renderNdviBtn" style="margin:0; width:auto; padding:9px 20px; white-space:nowrap; flex:0 0 auto;">Mostrar no mapa</button>
               </div>
-              <div class="field-status" style="margin-top:8px;">A data é escolhida na caixa "Data" dentro do mapa (campos "Data dos rótulos" e "Data da imagem").</div>
-              <button class="primary-btn" id="renderNdviBtn">Mostrar no mapa</button>
               <div class="field-status" id="ndviRenderStatus"></div>
             </div>
-            <div class="section">
-              <div class="section-head"><h2>Camadas NDVI</h2></div>
+            <div class="section" style="flex:1 1 0; min-width:0;">
+              <div class="section-head"><h2>Camadas</h2></div>
               <div class="field-status" style="margin-bottom:6px;">Essas camadas só ficam disponíveis aqui, nessa aba — nas demais o mapa mostra sempre o satélite.</div>
               <div class="shape-row">
                 <button type="button" class="mini-btn ndvi-layer-btn active" data-layer="satellite">Satélite</button>
