@@ -1038,6 +1038,7 @@
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndviSentinel">NDVI Sentinel-2</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="agricultureSentinel">Agriculture</button>
                 <button type="button" class="mini-btn ndvi-layer-btn" data-layer="ndreSentinel">NDRE</button>
+                <button type="button" class="mini-btn ndvi-layer-btn" data-layer="gndviSentinel">GNDVI</button>
               </div>
             </div>
           </div>
@@ -1285,9 +1286,18 @@
     attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
     maxZoom: 19, crossOrigin: true
   });
+  // GNDVI (green-band based) — best correlated with crude protein in the
+  // literature we reviewed (better than NDVI/NDRE for that specific use).
+  // Needs a custom "GNDVI" layer created in the Sentinel Hub configuration.
+  const gndviSentinel = new AuthenticatedWMSLayer('https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID, {
+    layers: 'GNDVI', format: 'image/png', transparent: true, version: '1.3.0',
+    time: sentinelTimeRange(defaultSentinelEndDate()), maxcc: 40,
+    attribution: 'Copernicus Sentinel-2 — Copernicus Data Space Ecosystem / Sentinel Hub',
+    maxZoom: 19, crossOrigin: true
+  });
   // Sentinel layers that use a date range and should transparent-outline
   // the talhões so the imagery underneath stays fully visible.
-  const TIME_BASED_SENTINEL_LAYERS = [ndviSentinel, agricultureSentinel, ndreSentinel];
+  const TIME_BASED_SENTINEL_LAYERS = [ndviSentinel, agricultureSentinel, ndreSentinel, gndviSentinel];
 
   const WhiteBackgroundLayer = L.GridLayer.extend({
     createTile: function(coords, done){
@@ -1659,7 +1669,7 @@
   }
 
   function switchMapLayer(key){
-    const layers = { satellite: satellite, ndviSentinel: ndviSentinel, agricultureSentinel: agricultureSentinel, ndreSentinel: ndreSentinel };
+    const layers = { satellite: satellite, ndviSentinel: ndviSentinel, agricultureSentinel: agricultureSentinel, ndreSentinel: ndreSentinel, gndviSentinel: gndviSentinel };
     const chosen = layers[key];
     if(!chosen || chosen === currentBaseLayer) return;
     if(map.hasLayer(currentBaseLayer)) map.removeLayer(currentBaseLayer);
@@ -5196,6 +5206,7 @@
   // ================= FORRAGEM: NDVI zonal + calibração + estimativa =================
   const SENTINEL_NDVI_RAW_LAYER = 'NDVI_RAW';
   const SENTINEL_NDRE_RAW_LAYER = 'NDRE_RAW';
+  const SENTINEL_GNDVI_RAW_LAYER = 'GNDVI_RAW';
 
   function pointInPolygon(x, y, poly){
     let inside = false;
@@ -5228,13 +5239,16 @@
       URL.revokeObjectURL(objectUrl);
     }
   }
-  async function computeTalhaoNDVI(ring, dateStr){
+  // Reads a raw index (NDVI, NDRE, GNDVI, ...) averaged over a whole
+  // talhão polygon — used for applying literature equations per talhão.
+  async function computeTalhaoIndex(ring, dateStr, rawLayerName){
+    if(rawLayerName == null) rawLayerName = SENTINEL_NDVI_RAW_LAYER;
     const pts = ring.map(([lat, lng]) => L.CRS.EPSG3857.project(L.latLng(lat, lng)));
     const minX = Math.min(...pts.map(p => p.x)), maxX = Math.max(...pts.map(p => p.x));
     const minY = Math.min(...pts.map(p => p.y)), maxY = Math.max(...pts.map(p => p.y));
     const W = 256, H = 256;
     const url = 'https://sh.dataspace.copernicus.eu/ogc/wms/' + SENTINEL_INSTANCE_ID +
-      '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=' + SENTINEL_NDVI_RAW_LAYER +
+      '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=' + rawLayerName +
       '&FORMAT=image/png&TRANSPARENT=true&WIDTH=' + W + '&HEIGHT=' + H +
       '&CRS=EPSG:3857&BBOX=' + [minX, minY, maxX, maxY].join(',') +
       '&TIME=' + encodeURIComponent(sentinelTimeRange(dateStr)) + '&MAXCC=60';
@@ -5267,6 +5281,15 @@
     }
     if(count === 0) throw new Error('Nenhum pixel válido encontrado para esse talhão nessa data (nuvens ou área muito pequena). Tente outra data.');
     return sum / count;
+  }
+  function computeTalhaoNDVI(ring, dateStr){
+    return computeTalhaoIndex(ring, dateStr, SENTINEL_NDVI_RAW_LAYER);
+  }
+  function computeTalhaoNDRE(ring, dateStr){
+    return computeTalhaoIndex(ring, dateStr, SENTINEL_NDRE_RAW_LAYER);
+  }
+  function computeTalhaoGNDVI(ring, dateStr){
+    return computeTalhaoIndex(ring, dateStr, SENTINEL_GNDVI_RAW_LAYER);
   }
   // Reads a raw index (NDVI or NDRE) around a single field point (not a
   // whole-talhão average) — used for calibration samples, since large/
@@ -5308,6 +5331,9 @@
   }
   function computeNdreAtPoint(lat, lng, dateStr, bufferMeters){
     return computeIndexAtPoint(lat, lng, dateStr, SENTINEL_NDRE_RAW_LAYER, bufferMeters);
+  }
+  function computeGndviAtPoint(lat, lng, dateStr, bufferMeters){
+    return computeIndexAtPoint(lat, lng, dateStr, SENTINEL_GNDVI_RAW_LAYER, bufferMeters);
   }
 
   function linearFit(points){
