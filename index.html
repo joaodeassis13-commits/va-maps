@@ -999,6 +999,21 @@
 
           <div id="panel-forragem" style="display:none;">
             <div class="section">
+              <div class="section-head"><h2>Ver camada NDVI</h2></div>
+              <div class="field-status" style="margin-bottom:8px;">Aqui os talhões não são pintados por variável principal — clique num talhão pra ver as variáveis secundárias escolhidas abaixo.</div>
+              <label class="field-label">Mapa</label>
+              <select id="ndviMapSelect"><option value="">Selecione…</option></select>
+              <label class="field-label">Variáveis secundárias</label>
+              <div class="multi-select" id="ndviSecondaryVarMultiSelect">
+                <button type="button" class="multi-select-trigger" id="ndviSecondaryVarTrigger">Nenhuma selecionada</button>
+                <div class="multi-select-panel" id="ndviSecondaryVarPanel" style="display:none;"></div>
+              </div>
+              <label class="field-label" style="margin-top:10px;">Data</label>
+              <select id="ndviDateSelect"><option value="">Mais recente</option></select>
+              <button class="primary-btn" id="renderNdviBtn">Mostrar no mapa</button>
+              <div class="field-status" id="ndviRenderStatus"></div>
+            </div>
+            <div class="section">
               <div class="section-head"><h2>Camadas NDVI</h2></div>
               <div class="field-status" style="margin-bottom:6px;">Essas camadas só ficam disponíveis aqui, nessa aba — nas demais o mapa mostra sempre o satélite.</div>
               <div class="shape-row">
@@ -1839,6 +1854,11 @@
   const PAGE_TITLES = Object.assign({ fazendas: 'Fazendas', geracao: 'Geração de Mapas', graficos: 'Geração de gráficos' }, CATEGORY_LABELS);
   let currentNav = 'fazendas';
   let currentSubtab = 'upload';
+  // When true, performMapRender() never paints a primary-variable color on
+  // any talhão (always transparent/black outline) — used by "Camadas NDVI",
+  // where the point is to see the raw imagery, with talhão data available
+  // only via secondary-variable labels on click, not fill color.
+  let forcePlainStyleMode = false;
   let controlPanelVisible = true;
 
   function updateControlPanelDisplay(){
@@ -1920,6 +1940,7 @@
     if(!state || !state.mapDefId) return;
     if(!mapDefinitions.some(m => String(m.id) === state.mapDefId && m.category === category)) return;
 
+    forcePlainStyleMode = false;
     document.getElementById('mapaSelect').value = state.mapDefId;
     populateMapaVariableSelect();
     document.getElementById('mapaVariableSelect').value = state.varIdx;
@@ -1938,7 +1959,7 @@
     populateMapaPeriodSelects();
     document.getElementById('mapCtrlStartDateSelect').value = state.startDate || '';
     document.getElementById('mapCtrlEndDateSelect').value = state.endDate || '';
-    document.getElementById('renderMapaBtn').click();
+    await performMapRender();
   }
 
   // ---------- mobile drawer menu (hamburger opens the same side-nav) ----------
@@ -1954,6 +1975,24 @@
   document.getElementById('sidenavCloseBtn').addEventListener('click', closeSideNav);
   document.getElementById('sidenavBackdrop').addEventListener('click', closeSideNav);
 
+  // Re-applies whichever subtab is now active: "Mapa" restores its own
+  // per-category selection (existing mechanism); "Dossel forrageiro" and
+  // "Camadas NDVI" each re-trigger their own dedicated render, from their
+  // own dropdowns, only if something was already chosen there. This keeps
+  // the three fully independent — switching between them never leaks one's
+  // selection into another.
+  async function reRenderForActiveSubtab(){
+    if(currentSubtab === 'mapa'){
+      forcePlainStyleMode = false;
+      await restoreCategoryMapState(currentCategory);
+    } else if(currentSubtab === 'dossel'){
+      forcePlainStyleMode = false;
+      if(document.getElementById('dosselMapSelect').value) document.getElementById('renderDosselBtn').click();
+    } else if(currentSubtab === 'forragem'){
+      if(document.getElementById('ndviMapSelect').value) document.getElementById('renderNdviBtn').click();
+    }
+  }
+
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', async () => {
       closeSideNav();
@@ -1962,7 +2001,7 @@
       const wasOnCategory = previousNav !== 'fazendas' && previousNav !== 'geracao' && previousNav !== 'graficos';
       const goingToCategory = currentNav !== 'fazendas' && currentNav !== 'geracao' && currentNav !== 'graficos';
 
-      if(wasOnCategory) categoryMapState[currentCategory] = captureCurrentMapSelection();
+      if(wasOnCategory && currentSubtab === 'mapa') categoryMapState[currentCategory] = captureCurrentMapSelection();
 
       const previousCategory = currentCategory;
       if(goingToCategory) currentCategory = currentNav;
@@ -1973,7 +2012,7 @@
       renderNavState();
       if(goingToCategory){
         await populateMapaSelectForCategory();
-        await restoreCategoryMapState(currentCategory);
+        await reRenderForActiveSubtab();
         if(currentSubtab === 'upload') loadUploadsList();
       }
       if(currentNav === 'graficos') populateChartDefMapSelect();
@@ -1981,11 +2020,13 @@
     });
   });
   document.querySelectorAll('.sub-tab[data-subtab]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
+      if(currentSubtab === 'mapa') categoryMapState[currentCategory] = captureCurrentMapSelection();
       currentSubtab = btn.dataset.subtab;
       controlPanelVisible = true;
       renderNavState();
       if(currentSubtab === 'upload') loadUploadsList();
+      await reRenderForActiveSubtab();
       setTimeout(() => map.invalidateSize(), 50);
     });
   });
@@ -2197,6 +2238,7 @@
   // thematic/faixa color a layer would otherwise get.
   const NDVI_TALHAO_STYLE = { color: '#000000', weight: 2, fill: false };
   function styleForNdvi(style){
+    if(forcePlainStyleMode) return NDVI_TALHAO_STYLE;
     return TIME_BASED_SENTINEL_LAYERS.includes(currentBaseLayer) ? NDVI_TALHAO_STYLE : style;
   }
 
@@ -2996,6 +3038,7 @@
       populateMapaSelectForCategory();
       populateForageEstimateMapSelect();
       populateDosselMapSelect();
+      populateNdviMapSelect();
       populateGrantMapsList();
       idbSet('mapDefinitions', mapDefinitions);
       return true;
@@ -3007,6 +3050,7 @@
         populateMapaSelectForCategory();
         populateForageEstimateMapSelect();
         populateDosselMapSelect();
+        populateNdviMapSelect();
         return true;
       }
       document.getElementById('mapDefinitionsList').innerHTML = 'Erro: ' + escapeHtml(err.message);
@@ -3524,7 +3568,7 @@
     panel.style.display = 'block';
   }
   function closeAllFloatingMultiSelectPanels(){
-    ['chartDefResponseVarPanel','secondaryVarPanel','departamentoPanel','retiroPanel'].forEach(id => {
+    ['chartDefResponseVarPanel','secondaryVarPanel','departamentoPanel','retiroPanel','ndviSecondaryVarPanel'].forEach(id => {
       const p = document.getElementById(id);
       if(p) p.style.display = 'none';
     });
@@ -4425,7 +4469,7 @@
     if(retWrap && !retWrap.contains(e.target)) document.getElementById('retiroPanel').style.display = 'none';
   });
 
-  document.getElementById('renderMapaBtn').addEventListener('click', async () => {
+  async function performMapRender(){
     const defId = document.getElementById('mapaSelect').value;
     const def = mapDefinitions.find(m => String(m.id) === defId);
     const rawVarVal = document.getElementById('mapaVariableSelect').value;
@@ -4650,7 +4694,8 @@
     }
     clearTimeout(slowLoadTimer);
     document.getElementById('mapLoadingOverlay').style.display = 'none';
-  });
+  }
+  document.getElementById('renderMapaBtn').addEventListener('click', () => performMapRender());
 
   // ================= PERIMETERS (Registrar imagem — Supabase) =================
   async function loadPerimetersFromDB(){
@@ -5191,6 +5236,103 @@
     populateDosselVariableSelect();
     await refreshDosselDates();
   });
+
+  // ---------- Camadas NDVI: its own map/secondary-vars/date selection —
+  // never paints a primary-variable color, only shows secondary-variable
+  // values via popup when a talhão is clicked. ----------
+  function populateNdviMapSelect(){
+    const sel = document.getElementById('ndviMapSelect');
+    const relevant = mapDefinitions.filter(m => m.category === 'pastagens' && !myHiddenMapIds.has(String(m.id)));
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>' + relevant.map(m => '<option value="' + m.id + '">' + escapeHtml(m.name) + '</option>').join('');
+    if(relevant.some(m => String(m.id) === prev)) sel.value = prev;
+    renderNdviSecondaryVarOptions();
+  }
+  function renderNdviSecondaryVarOptions(){
+    const defId = document.getElementById('ndviMapSelect').value;
+    const def = mapDefinitions.find(m => String(m.id) === defId);
+    const panel = document.getElementById('ndviSecondaryVarPanel');
+    if(!def){ panel.innerHTML = '<div class="multi-select-empty">Escolha um mapa primeiro.</div>'; updateNdviSecondaryVarTriggerLabel(); return; }
+    if(def.variables.length === 0){ panel.innerHTML = '<div class="multi-select-empty">Sem variáveis nesse mapa.</div>'; updateNdviSecondaryVarTriggerLabel(); return; }
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    panel.innerHTML = def.variables.map((v,i) => (
+      '<label><input type="checkbox" class="ndvi-secondary-var-checkbox" value="' + i + '"' + (prevChecked.has(String(i)) ? ' checked' : '') + '> ' + escapeHtml(v.name) + '</label>'
+    )).join('');
+    updateNdviSecondaryVarTriggerLabel();
+  }
+  function getSelectedNdviSecondaryIdxs(){
+    return Array.from(document.querySelectorAll('#ndviSecondaryVarPanel .ndvi-secondary-var-checkbox:checked')).map(cb => Number(cb.value));
+  }
+  function updateNdviSecondaryVarTriggerLabel(){
+    const defId = document.getElementById('ndviMapSelect').value;
+    const def = mapDefinitions.find(m => String(m.id) === defId);
+    const idxs = getSelectedNdviSecondaryIdxs();
+    const trigger = document.getElementById('ndviSecondaryVarTrigger');
+    if(idxs.length === 0) trigger.textContent = 'Nenhuma selecionada';
+    else if(idxs.length === 1 && def) trigger.textContent = def.variables[idxs[0]].name;
+    else trigger.textContent = idxs.length + ' selecionadas';
+  }
+  document.getElementById('ndviSecondaryVarPanel').addEventListener('change', (e) => {
+    if(e.target.classList.contains('ndvi-secondary-var-checkbox')) updateNdviSecondaryVarTriggerLabel();
+  });
+  document.getElementById('ndviSecondaryVarTrigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById('ndviSecondaryVarPanel');
+    if(panel.style.display === 'block'){ panel.style.display = 'none'; }
+    else{ closeAllFloatingMultiSelectPanels(); openFloatingMultiSelectPanel(e.currentTarget, panel); }
+  });
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('ndviSecondaryVarMultiSelect');
+    if(wrap && !wrap.contains(e.target)) document.getElementById('ndviSecondaryVarPanel').style.display = 'none';
+  });
+  async function refreshNdviDates(){
+    const mapId = document.getElementById('ndviMapSelect').value;
+    const sel = document.getElementById('ndviDateSelect');
+    if(!mapId){ sel.innerHTML = '<option value="">Mais recente</option>'; return; }
+    try{
+      const rows = await fetchAllRows(() => sb.from('category_data').select('sample_date').eq('category', currentCategory).eq('map_definition_id', mapId));
+      const dates = Array.from(new Set(rows.map(r => r.sample_date))).sort();
+      sel.innerHTML = '<option value="">Mais recente</option>' + dates.slice().reverse().map(d => '<option value="' + d + '">' + formatDateBR(d) + '</option>').join('');
+    }catch(err){
+      sel.innerHTML = '<option value="">Mais recente</option>';
+    }
+  }
+  document.getElementById('ndviMapSelect').addEventListener('change', async () => {
+    renderNdviSecondaryVarOptions();
+    await refreshNdviDates();
+  });
+  document.getElementById('renderNdviBtn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('ndviRenderStatus');
+    const mapId = document.getElementById('ndviMapSelect').value;
+    if(!mapId){ statusEl.textContent = 'Escolha um mapa.'; return; }
+    statusEl.textContent = 'Carregando…';
+    try{
+      // Drive the shared fields, forcing "Talhões" as the primary variable
+      // (never shown to the user — plain style is forced regardless below)
+      // and this tab's own secondary-variable picks, then run the shared
+      // render engine with painting suppressed.
+      document.getElementById('mapaSelect').value = mapId;
+      populateMapaVariableSelect();
+      document.getElementById('mapaVariableSelect').value = '__talhao';
+      renderSecondaryVarOptions();
+      const ndviIdxs = getSelectedNdviSecondaryIdxs();
+      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => {
+        cb.checked = ndviIdxs.includes(Number(cb.value));
+      });
+      updateSecondaryVarTriggerLabel();
+      await refreshAvailableDates();
+      const chosenDate = document.getElementById('ndviDateSelect').value;
+      document.getElementById('mapCtrlStartDateSelect').value = chosenDate;
+      document.getElementById('mapCtrlEndDateSelect').value = chosenDate;
+      statusEl.textContent = '';
+      forcePlainStyleMode = true;
+      await performMapRender();
+      forcePlainStyleMode = false;
+    }catch(err){
+      statusEl.textContent = 'Erro: ' + err.message;
+      forcePlainStyleMode = false;
+    }
+  });
   document.getElementById('renderDosselBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('dosselRenderStatus');
     const mapId = document.getElementById('dosselMapSelect').value;
@@ -5203,17 +5345,19 @@
       // single, battle-tested painting/chart engine instead of a second
       // parallel one, even though the selection fields themselves are
       // dedicated to this tab.
+      forcePlainStyleMode = false;
       document.getElementById('mapaSelect').value = mapId;
       populateMapaVariableSelect();
       document.getElementById('mapaVariableSelect').value = varVal;
       renderSecondaryVarOptions();
+      document.querySelectorAll('#secondaryVarPanel .secondary-var-checkbox').forEach(cb => { cb.checked = false; });
       updateSecondaryVarTriggerLabel();
       await refreshAvailableDates();
       const chosenDate = document.getElementById('dosselDateSelect').value;
       document.getElementById('mapCtrlStartDateSelect').value = chosenDate;
       document.getElementById('mapCtrlEndDateSelect').value = chosenDate;
       statusEl.textContent = '';
-      document.getElementById('renderMapaBtn').click();
+      await performMapRender();
     }catch(err){
       statusEl.textContent = 'Erro: ' + err.message;
     }
