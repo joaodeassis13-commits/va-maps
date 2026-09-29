@@ -1519,6 +1519,11 @@
         '<button type="button" class="mini-btn" id="mapCtrlNextDateBtn" style="flex:1;">Data seguinte →</button>' +
       '</div>' +
       '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="mapCtrlDateNavStatus"></div>' +
+      '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        '<button type="button" class="mini-btn" id="mapCtrlPrevVarBtn" style="flex:1;">← Variável anterior</button>' +
+        '<button type="button" class="mini-btn" id="mapCtrlNextVarBtn" style="flex:1;">Variável seguinte →</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:#e0a05a;margin-top:4px;min-height:13px;" id="mapCtrlVarNavStatus"></div>' +
       '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">Início/fim em branco = média de todo o histórico. Mesma data nos dois = um dia só. Datas diferentes = média do período.</div>' +
       '</div>' +
       '<div id="dateBoxNdviSection" style="display:none;">' +
@@ -1597,6 +1602,30 @@
   }
   document.getElementById('mapCtrlPrevDateBtn').addEventListener('click', () => navigateToAdjacentDate(-1));
   document.getElementById('mapCtrlNextDateBtn').addEventListener('click', () => navigateToAdjacentDate(1));
+
+  // "Variável anterior"/"Variável seguinte": step through the primary
+  // variable select's own option order (Talhões, then the map's
+  // variables in the order they're defined) and re-render immediately —
+  // same pattern as the date nav buttons above.
+  function navigateToAdjacentVariable(direction){
+    const statusEl = document.getElementById('mapCtrlVarNavStatus');
+    const sel = document.getElementById('mapaVariableSelect');
+    const options = Array.from(sel.options);
+    if(options.length === 0){ statusEl.textContent = 'Escolha um mapa primeiro.'; return; }
+    let idx = options.findIndex(o => o.value === sel.value);
+    if(idx === -1) idx = 0;
+    const targetIdx = idx + direction;
+    if(targetIdx < 0 || targetIdx >= options.length){
+      statusEl.textContent = direction < 0 ? 'Não há variável anterior.' : 'Não há variável seguinte.';
+      return;
+    }
+    statusEl.textContent = '';
+    sel.value = options[targetIdx].value;
+    renderSecondaryVarOptions();
+    document.getElementById('renderMapaBtn').click();
+  }
+  document.getElementById('mapCtrlPrevVarBtn').addEventListener('click', () => navigateToAdjacentVariable(-1));
+  document.getElementById('mapCtrlNextVarBtn').addEventListener('click', () => navigateToAdjacentVariable(1));
 
   function renderCategoryFilterBody(){
     if(!categoryFilterBodyEl) return;
