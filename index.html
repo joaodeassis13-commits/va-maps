@@ -641,6 +641,20 @@
     .map-panel{ min-height:50vh; }
     .charts-panel{ flex:0 0 auto; width:100%; }
     .map-charts-resizer{ display:none; }
+
+    /* Aba NDVI (panel-forragem): Camadas sempre embaixo de Rótulos, cada
+       caixa ocupando a largura toda (em vez de tentar dividir espaço),
+       e otimizações de espaço dentro de cada uma para telas estreitas. */
+    #panel-forragem{ gap:10px; }
+    #panel-forragem > .section{ flex-basis:100%; min-width:0; }
+    #panel-forragem > .section:nth-of-type(1){ order:1; }
+    #panel-forragem > .section:nth-of-type(2){ order:2; }
+    .ndvi-rotulos-row{ flex-wrap:wrap !important; gap:8px !important; }
+    .ndvi-rotulos-row > div{ flex:1 1 100% !important; }
+    #renderNdviBtn{ width:100% !important; }
+    #panel-forragem .shape-row .ndvi-layer-btn{
+      flex:1 1 calc(50% - 5px); white-space:normal; font-size:11.5px; padding:7px 4px; line-height:1.25;
+    }
   }
 </style>
 </head>
@@ -1016,7 +1030,7 @@
             <div class="section" style="flex:1 1 0; min-width:0;">
               <div class="section-head"><h2>Rótulos</h2></div>
               <div class="field-status" style="margin-bottom:8px;">Os talhões não são pintados por variável principal — clique num pra ver as secundárias. A data é escolhida na caixa "Data" dentro do mapa.</div>
-              <div style="display:flex; align-items:center; gap:12px; flex-wrap:nowrap;">
+              <div class="ndvi-rotulos-row" style="display:flex; align-items:center; gap:12px; flex-wrap:nowrap;">
                 <div style="flex:1; min-width:0;">
                   <label class="field-label">Mapa</label>
                   <select id="ndviMapSelect"><option value="">Selecione…</option></select>
@@ -2513,16 +2527,13 @@
     if(farmIds.length === 0){ statusEl.textContent = 'Escolha pelo menos uma fazenda.'; return; }
     statusEl.textContent = 'Concedendo…';
     try{
-      const { data: existingProfile, error: profileErr } = await sb.from('profiles').select('id,email').ilike('email', email).maybeSingle();
-      if(profileErr) throw profileErr;
-      if(existingProfile){
-        const rows = farmIds.map(fid => ({ farm_id: fid, user_id: existingProfile.id, granted_email: existingProfile.email, granted_by: currentUser.id }));
-        const { error } = await sb.from('farm_access').upsert(rows, { onConflict: 'farm_id,user_id' });
-        if(error) throw error;
-        statusEl.textContent = 'Acesso concedido a ' + existingProfile.email + '.';
+      // A busca do perfil e a concessão rodam no servidor (RPC), porque o RLS
+      // não deixa o analista ler perfis de outras pessoas.
+      const { data: result, error: rpcErr } = await sb.rpc('grant_farm_access', { target_email: email, target_farm_ids: farmIds });
+      if(rpcErr) throw rpcErr;
+      if(typeof result === 'string' && result.indexOf('granted:') === 0){
+        statusEl.textContent = 'Acesso concedido a ' + result.slice(8) + '.';
       } else {
-        const { error } = await sb.from('pending_supervisor_invites').insert({ email, farm_ids: farmIds, created_by: currentUser.id });
-        if(error) throw error;
         // Actually send the person an email with a sign-in link (previously
         // this only recorded the invite in the database and silently
         // expected them to sign up on their own — no email ever went out).
